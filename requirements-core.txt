@@ -1,0 +1,20 @@
+fastapi==0.116.1
+uvicorn==0.35.0
+pydantic==2.11.7
+pydantic-settings==2.10.1
+python-dotenv==1.1.1
+sqlalchemy==2.0.27
+psycopg2==2.9.10
+redis==6.4.0
+requests==2.32.3
+pandas==2.2.2
+numpy==2.1.1
+# web3==7.13.0
+itsdangerous==2.2.0
+openai==1.109.1
+passlib==1.7.4
+jinja2==3.1.6
+uuid_utils==0.11.0
+jwt==1.4.0
+python-multipart==0.0.20
+authlib==1.6.4

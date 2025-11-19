@@ -1,0 +1,33 @@
+# code editor
+.vscode
+.idea
+.conda
+.serena/*
+
+# env
+__pycache__/
+venv
+.venv
+.env
+
+# dev folders
+notebooks
+test.py
+run.sh
+tests/
+
+# archive folder
+*.zip
+
+# images in static folders
+static**/*.png
+static**/*.jpg
+static**/*.jpeg
+static**/*.webp
+static**/*.svg
+# development file
+ecosystem.config.js
+
+# ploc - scratch folder
+scratch/
+commit-msg/
