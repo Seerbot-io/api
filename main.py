@@ -1,21 +1,16 @@
-from fastapi import FastAPI
-import uvicorn
-import secrets
-from fastapi.middleware.cors import CORSMiddleware
-
 from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
-from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.middleware.sessions import SessionMiddleware
-from app.middleware import CacheRequestMiddleware
+import uvicorn
+import secrets
+
 from app.api.endpoints import (
+    analysis,
+    auth,
     health,
-    prices,
-    ai_analysis,
-    al_trade,
-    search,
 )
 from app.core.config import settings
 
@@ -28,12 +23,8 @@ app = FastAPI(
     openapi_url = None,
 )
 
-# cache middleware (only if Redis is configured)
-if settings.REDIS_HOST is not None and settings.REDIS_HOST.strip() != '':
-    app.add_middleware(CacheRequestMiddleware)
-    print("Redis caching enabled")
-else:
-    print("Redis caching disabled - REDIS_HOST not configured")
+# Cache configuration is now done via @cache decorator on individual endpoints
+# See app/api/endpoints/analysis.py for examples
 # session middleware
 app.add_middleware(SessionMiddleware, 
                    secret_key=settings.SESSION_SECRET_KEY,
@@ -82,6 +73,8 @@ async def openapi(username: str = Depends(doc_auth)):
 app.include_router(health.router)
 
 g_prefix = "/api"
+app.include_router(analysis.router, prefix="/analysis")
+app.include_router(auth.router, prefix="/auth")
 
 
 
@@ -93,7 +86,6 @@ g_prefix = "/api"
 
 
 if __name__ == "__main__":
-    print(settings)
     uvicorn.run(
         "main:app",
         host=settings.HOST,

@@ -32,8 +32,9 @@ class Settings(BaseSettings):
 
     # Login configuration
     ENCODE_KEY: str | None
-    ENCODE_ALGORITHM: str | None
-    ACCESS_TOKEN_EXPIRE_MINUTES: int | None
+    ENCODE_ALGORITHM: str | None = "HS256"
+    ACCESS_TOKEN_EXPIRE_SECONDS: int | None = 3600 # 1 hour
+    NONCE_EXPIRY_SECONDS: int | None = 600 # 10 minutes
 
     # Redis settings
     REDIS_HOST: str | None

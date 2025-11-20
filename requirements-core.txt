@@ -15,6 +15,8 @@ openai==1.109.1
 passlib==1.7.4
 jinja2==3.1.6
 uuid_utils==0.11.0
-jwt==1.4.0
+PyJWT==2.8.0
+pycardano==0.10.0
+cryptography==43.0.1
 python-multipart==0.0.20
 authlib==1.6.4
