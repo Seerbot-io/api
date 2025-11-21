@@ -81,7 +81,9 @@ def verify_token(token: str) -> Dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
 
     try:
+        print(f"Decoding token: {token}")
         payload = jwt.decode(token, settings.ENCODE_KEY, algorithms=[settings.ENCODE_ALGORITHM])
+        print(f"Payload: {payload}")
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
     except jwt.InvalidTokenError:

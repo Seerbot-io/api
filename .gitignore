@@ -14,8 +14,6 @@ venv
 notebooks
 test.py
 run.sh
-tests/
-tasks/
 
 # archive folder
 *.zip

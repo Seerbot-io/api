@@ -16,6 +16,20 @@ router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)
 group_tags=["Api"]
 
+def get_token_price_usd(token: str, db: Session) -> float:
+    """
+    Get the USD price of a token.
+    TODO: Implement to fetch latest token price from database or API.
+    
+    Args:
+        token: Token symbol (e.g., 'USDM', 'ADA')
+        db: Database session
+    
+    Returns:
+        USD price of the token (default: 1 if not implemented)
+    """
+    return 1
+
 
 @router.get("/indicators", 
             tags=group_tags,
@@ -235,10 +249,10 @@ def get_token_market_info(
     - name: Token name
     - symbol: Token symbol
     - price: Token price in USD
-    - 24h_change: Token price change in 24h (percentage)
-    - 24h_low: Token lowest price in 24h
-    - 24h_high: Token highest price in 24h
-    - 24h_volume: Token trade volume in 24h
+    - change_24h: Token price change in 24h (percentage)
+    - low_24h: Token lowest price in 24h
+    - high_24h: Token highest price in 24h
+    - volume_24h: Token trade volume in 24h
     """
     symbol = symbol.strip().upper()
     time_now = (int(datetime.now().timestamp()) // 300 - 1) *300
@@ -294,7 +308,7 @@ def get_token_market_info(
 def create_swap(
     swap_data: schemas.SwapCreate,
     db: Session = Depends(get_db),
-    wallet_address: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user)
 ) -> schemas.SwapResponse:
     """Creates a new swap transaction record.
     
@@ -305,6 +319,8 @@ def create_swap(
     - to_amount: Amount of destination token (required)
     - price: Exchange rate (required)
     - timestamp: Transaction timestamp in seconds (optional, defaults to current time)
+    
+    The transaction volume (value) is automatically calculated as: from_amount * price
     
     OUTPUT:
     - transaction_id: On chain transaction ID
@@ -324,18 +340,24 @@ def create_swap(
     # Use current timestamp if not provided
     timestamp = swap_data.timestamp if swap_data.timestamp else int(datetime.now().timestamp())
     
+    # Calculate transaction volume (value) in USD
+    # Get USD price of the from_token
+    token_price_usd = get_token_price_usd(swap_data.from_token, db)
+    # Calculate value: from_amount * token_price_usd
+    value = swap_data.from_amount * token_price_usd
+    
     # Create new swap record
     new_swap = Swap(
         transaction_id=swap_data.transaction_id,
-        user_address=wallet_address,
+        user_id=user_id,
         from_token=swap_data.from_token,
         to_token=swap_data.to_token,
         from_amount=swap_data.from_amount,
         to_amount=swap_data.to_amount,
         price=swap_data.price,
+        value=value,
         timestamp=timestamp,
         status='completed',  # Default to completed as per example
-        user_id=None  # Optional user_id field, can be set if needed
     )
     
     try:
@@ -404,8 +426,8 @@ def get_swaps(
     if to_time:
         query = query.filter(Swap.timestamp <= to_time)
     if user_id:
-        # Filter by user_address (wallet address) when user_id is provided
-        query = query.filter(Swap.user_address == user_id)
+        # Filter by user_id (wallet address) when user_id is provided
+        query = query.filter(Swap.user_id == user_id)
     
     # Get total count
     total = query.count()
@@ -433,4 +455,131 @@ def get_swaps(
         total=total,
         page=page,
         limit=limit
+    )
+
+
+@router.get("/toptraders",
+            tags=group_tags,
+            response_model=schemas.TopTradersResponse)
+@cache('at-e5m')
+def get_top_traders(
+    limit: int = 10,
+    metric: str = 'volume',
+    period: str = '24h',
+    pair: Optional[str] = None,
+    db: Session = Depends(get_db)
+) -> schemas.TopTradersResponse:
+    """Retrieves a list of top traders based on trading volume or number of trades.
+    
+    - limit: Number of top traders to return (default: 10, max: 100)
+    - metric: Ranking metric ('volume', 'trades', default: 'volume')
+    - period: Time period ('24h', '7d', '30d', 'all', default: '24h')
+    - pair: Filter by trading pair (optional, e.g., 'USDM/ADA' or 'USDM_ADA')
+    
+    Total volume is calculated by summing the pre-calculated 'value' field from swap transactions.
+    
+    OUTPUT:
+    - traders: Array of trader objects with user_id, total_volume, total_trades, rank
+    - period: Selected time period
+    - timestamp: Data timestamp in seconds
+    """
+    # Validate and adjust limit
+    limit = max(1, min(100, limit))
+    
+    # Validate metric
+    metric_lower = metric.strip().lower()
+    valid_metrics = ['volume', 'trades']
+    if metric_lower not in valid_metrics:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid metric: {metric}. Valid values: {', '.join(valid_metrics)}"
+        )
+    
+    # Validate period
+    period_lower = period.strip().lower()
+    valid_periods = ['24h', '7d', '30d', 'all']
+    if period_lower not in valid_periods:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid period: {period}. Valid values: {', '.join(valid_periods)}"
+        )
+    
+    # Calculate time range
+    current_time = int(datetime.now().timestamp())
+    time_filters = {
+        '24h': current_time - 24 * 60 * 60,
+        '7d': current_time - 7 * 24 * 60 * 60,
+        '30d': current_time - 30 * 24 * 60 * 60,
+        'all': None
+    }
+    time_threshold = time_filters.get(period_lower)
+    
+    # Build WHERE conditions
+    where_conditions = ["status = 'completed'"]
+    
+    # Apply time filter
+    if time_threshold is not None:
+        where_conditions.append(f"timestamp >= {time_threshold}")
+    
+    # Apply pair filter if provided
+    if pair:
+        pair_clean = pair.strip().replace("_", "/").upper()
+        # Split pair into tokens
+        if '/' in pair_clean:
+            token1, token2 = pair_clean.split('/', 1)
+            # Escape single quotes for SQL safety
+            token1_escaped = token1.replace("'", "''")
+            token2_escaped = token2.replace("'", "''")
+            # Check if pair matches either from_token/to_token or to_token/from_token
+            where_conditions.append(
+                f"((from_token = '{token1_escaped}' AND to_token = '{token2_escaped}') OR "
+                f"(from_token = '{token2_escaped}' AND to_token = '{token1_escaped}'))"
+            )
+        else:
+            # If no slash, treat as single token and match either from or to
+            pair_escaped = pair_clean.replace("'", "''")
+            where_conditions.append(f"(from_token = '{pair_escaped}' OR to_token = '{pair_escaped}')")
+    
+    where_clause = " AND ".join(where_conditions)
+    
+    # Build ORDER BY clause based on metric
+    order_by_clause = ""
+    if metric_lower == 'volume':
+        order_by_clause = "ORDER BY total_volume DESC"
+    elif metric_lower == 'trades':
+        order_by_clause = "ORDER BY total_trades DESC"
+    
+    # Build PostgreSQL query
+    # Use value field (transaction volume) instead of calculating from_amount * price
+    query = f"""
+        SELECT 
+            user_id,
+            COALESCE(SUM(value), 0) as total_volume,
+            COUNT(transaction_id) as total_trades
+        FROM proddb.swap_transactions
+        WHERE {where_clause}
+        GROUP BY user_id
+        {order_by_clause}
+        LIMIT {limit}
+    """
+    
+    # Execute query
+    results = db.execute(text(query)).fetchall()
+    
+    # Convert to response format
+    traders = []
+    for idx, row in enumerate(results, start=1):
+        traders.append(
+            schemas.Trader(
+                user_id=row.user_id or '',
+                total_volume=float(row.total_volume) if row.total_volume else 0.0,
+                total_trades=int(row.total_trades) if row.total_trades else 0,
+                rank=idx
+            )
+        )
+    
+    return schemas.TopTradersResponse(
+        traders=traders,
+        period=period_lower,
+        timestamp=current_time
     )
