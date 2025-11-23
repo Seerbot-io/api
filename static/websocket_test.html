@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Streaming Test</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔌 WebSocket Streaming Test</h1>
+            <div id="status" class="status disconnected">Disconnected</div>
+        </div>
+        
+        <div class="controls">
+            <div class="form-group">
+                <label>WebSocket URL</label>
+                <input type="text" id="wsUrl" value="" placeholder="Auto-detected from current page">
+            </div>
+            
+            <div class="button-group">
+                <button id="connectBtn" class="btn-connect" onclick="connect()">Connect</button>
+                <button id="disconnectBtn" class="btn-disconnect" onclick="disconnect()" disabled>Disconnect</button>
+            </div>
+            
+            <div class="form-row" style="margin-top: 20px;">
+                <div class="form-group">
+                    <label>Subscriber ID</label>
+                    <input type="text" id="subscriberId" value="test_subscriber_1" placeholder="unique_id_123">
+                </div>
+                
+                <div class="form-group">
+                    <label>Symbol</label>
+                    <input type="text" id="symbol" value="USDM/ADA" placeholder="USDM/ADA">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Resolution</label>
+                <select id="resolution">
+                    <option value="5m">5m</option>
+                    <option value="30m">30m</option>
+                    <option value="1h">1h</option>
+                    <option value="4h">4h</option>
+                    <option value="1d">1d</option>
+                </select>
+            </div>
+            
+            <div class="button-group">
+                <button id="subscribeBtn" class="btn-subscribe" onclick="subscribe()" disabled>Subscribe</button>
+                <button id="unsubscribeBtn" class="btn-unsubscribe" onclick="unsubscribe()" disabled>Unsubscribe</button>
+            </div>
+        </div>
+        
+        <div class="subscriptions">
+            <h3>Active Subscriptions</h3>
+            <div id="subscriptionsList">No active subscriptions</div>
+        </div>
+        
+        <div class="messages" id="messages">
+            <div class="message info">
+                <div class="message-header">
+                    <span>System</span>
+                    <span class="message-time" id="currentTime"></span>
+                </div>
+                <div class="message-body">Ready to connect. Click "Connect" to start.</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/script.js"></script>
+</body>
+</html>
+

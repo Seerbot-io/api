@@ -1,0 +1,217 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    overflow: hidden;
+}
+
+.header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px;
+    text-align: center;
+}
+
+.header h1 {
+    margin-bottom: 10px;
+}
+
+.status {
+    display: inline-block;
+    padding: 5px 15px;
+    border-radius: 20px;
+    font-size: 14px;
+    margin-top: 10px;
+}
+
+.status.connected {
+    background: #4caf50;
+}
+
+.status.disconnected {
+    background: #f44336;
+}
+
+.status.connecting {
+    background: #ff9800;
+}
+
+.controls {
+    padding: 20px;
+    background: #f5f5f5;
+    border-bottom: 1px solid #ddd;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+    color: #333;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.button-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+button {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 5px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+}
+
+.btn-connect {
+    background: #4caf50;
+    color: white;
+}
+
+.btn-disconnect {
+    background: #f44336;
+    color: white;
+}
+
+.btn-subscribe {
+    background: #2196f3;
+    color: white;
+}
+
+.btn-unsubscribe {
+    background: #ff9800;
+    color: white;
+}
+
+button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.messages {
+    padding: 20px;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.message {
+    padding: 15px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+    border-left: 4px solid #667eea;
+    background: #f9f9f9;
+}
+
+.message.error {
+    border-left-color: #f44336;
+    background: #ffebee;
+}
+
+.message.success {
+    border-left-color: #4caf50;
+    background: #e8f5e9;
+}
+
+.message.info {
+    border-left-color: #2196f3;
+    background: #e3f2fd;
+}
+
+.message-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.message-time {
+    color: #666;
+    font-size: 12px;
+}
+
+.message-body {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.subscriptions {
+    padding: 20px;
+    background: #f5f5f5;
+    border-top: 1px solid #ddd;
+}
+
+.subscriptions h3 {
+    margin-bottom: 15px;
+}
+
+.subscription-item {
+    padding: 10px;
+    margin-bottom: 10px;
+    background: white;
+    border-radius: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.subscription-info {
+    flex: 1;
+}
+
+.subscription-id {
+    font-weight: 600;
+    color: #667eea;
+}
+
+.clear-btn {
+    background: #f44336;
+    color: white;
+    padding: 8px 15px;
+    font-size: 14px;
+}
+

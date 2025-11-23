@@ -134,7 +134,15 @@ class HybridCacheManager:
     def __init__(self):
         if hasattr(self, '_initialized') and self._initialized:
             return
-        
+        if settings.REDIS_HOST is None or settings.REDIS_HOST.strip() == "":
+            self.pool = None
+            self.redis_available = False
+            self.memory_cache: Dict[str, Tuple[bytes, Optional[float]]] = {}
+            self._memory_cache_size = 0
+            self._memory_lock = Lock()
+            self._last_redis_check: Optional[float] = None
+            self._initialized = True
+            return
         self.pool = ConnectionPool(
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
@@ -146,24 +154,48 @@ class HybridCacheManager:
         )
         self.redis_available = False
         self.memory_cache: Dict[str, Tuple[bytes, Optional[float]]] = {}
+        self._memory_cache_size = 0
         self._memory_lock = Lock()
+        self._last_redis_check: Optional[float] = None
         self._initialized = True
     
     def redis_connect(self) -> Optional[Redis]:
+        """Connect to Redis, with 30-minute cooldown when unavailable"""
+        # If Redis is not configured, skip
+        if self.pool is None:
+            return None
+        
+        # If Redis was available, try immediately
+        if self.redis_available:
+            try:
+                rc = Redis(connection_pool=self.pool)
+                if rc.ping():
+                    return rc
+                # Connection failed, mark as unavailable
+                self.redis_available = False
+                self._last_redis_check = time.time()
+            except Exception:
+                self.redis_available = False
+                self._last_redis_check = time.time()
+            return None
+        
+        # If Redis is unavailable, only check every 30 minutes
+        now = time.time()
+        if self._last_redis_check is not None:
+            time_since_check = now - self._last_redis_check
+            if time_since_check < settings.REDIS_RECHECK_INTERVAL:
+                return None
+        
+        # Time to recheck Redis connection
+        self._last_redis_check = now
         try:
             rc = Redis(connection_pool=self.pool)
             if rc.ping():
-                if not self.redis_available:
-                    print("Redis cache connection available")
                 self.redis_available = True
                 return rc
-            print("Failed to connect to Redis")
-        except Exception as e:
-            if self.redis_available:
-                print("Lost Redis connection", e)
-            else:
-                print("Failed to connect to Redis", e)
-        self.redis_available = False
+        except Exception:
+            pass
+        
         return None
     
     def get(self, key: str) -> Optional[Any]:
@@ -212,8 +244,7 @@ class HybridCacheManager:
             if ttl_seconds is not None and ttl_seconds > 0:
                 rc.expire(key, ttl_seconds)
             return True
-        except Exception as e:
-            print("Failed to set Redis cache", e)
+        except Exception:
             return False
         finally:
             rc.close()
@@ -227,18 +258,53 @@ class HybridCacheManager:
             if result is not None and result != b'':
                 return result
             return None
-        except Exception as e:
-            print("Failed to read Redis cache", e)
+        except Exception:
             return None
         finally:
             rc.close()
     
     def _set_memory(self, key: str, data: bytes, ttl_seconds: Optional[int]) -> None:
+        """Set memory cache with 4GB size limit using LRU eviction"""
         expires_at = None if ttl_seconds is None else time.time() + ttl_seconds
+        data_size = len(data)
+        
         with self._memory_lock:
+            # Remove existing entry if updating
+            if key in self.memory_cache:
+                old_data, _ = self.memory_cache[key]
+                self._memory_cache_size -= len(old_data)
+            
+            # Check if we need to evict entries to make space
+            while (self._memory_cache_size + data_size > settings.MEMORY_CACHE_MAX_SIZE and 
+                   self.memory_cache):
+                # Evict oldest expired entries first
+                now = time.time()
+                expired_keys = [
+                    k for k, (_, exp) in self.memory_cache.items()
+                    if exp is not None and exp <= now
+                ]
+                
+                if expired_keys:
+                    # Remove expired entries
+                    for k in expired_keys:
+                        old_data, _ = self.memory_cache.pop(k)
+                        self._memory_cache_size -= len(old_data)
+                else:
+                    # No expired entries, remove oldest by expiration time
+                    # (or entry with no expiration if all have expiration)
+                    oldest_key = min(
+                        self.memory_cache.keys(),
+                        key=lambda k: self.memory_cache[k][1] or float('inf')
+                    )
+                    old_data, _ = self.memory_cache.pop(oldest_key)
+                    self._memory_cache_size -= len(old_data)
+            
+            # Add new entry
             self.memory_cache[key] = (data, expires_at)
+            self._memory_cache_size += data_size
     
     def _get_memory(self, key: str) -> Optional[bytes]:
+        """Get from memory cache, removing expired entries"""
         now = time.time()
         with self._memory_lock:
             cached = self.memory_cache.get(key)
@@ -247,6 +313,7 @@ class HybridCacheManager:
             value, expires_at = cached
             if expires_at is not None and expires_at <= now:
                 self.memory_cache.pop(key, None)
+                self._memory_cache_size -= len(value)
                 return None
             return value
 

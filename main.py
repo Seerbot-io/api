@@ -2,14 +2,18 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
 import secrets
+import os
 
 from app.api.endpoints import (
     analysis,
     auth,
+    charting,
     health,
 )
 from app.core.config import settings
@@ -40,9 +44,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# mount public static files 
-# app.mount("/static", StaticFiles(directory=settings.STATIC_FOLDER), name="static")
-# templates = Jinja2Templates(directory="templates")
+# mount public static files
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 security = HTTPBasic()
 def doc_auth(credentials: HTTPBasicCredentials = Depends(security)):
@@ -67,6 +72,14 @@ async def get_redoc_documentation(username: str = Depends(doc_auth)):
 async def openapi(username: str = Depends(doc_auth)):
     return get_openapi(title=app.title, version=app.version, routes=app.routes)
 
+@app.get("/websocket-test", include_in_schema=False)
+async def websocket_test_page():
+    """Serve the WebSocket test HTML page"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "websocket_test.html")
+    if os.path.exists(html_path):
+        return FileResponse(html_path, media_type="text/html")
+    raise HTTPException(status_code=404, detail="WebSocket test page not found")
+
 # Include your API routers
 # version control rule: V{main}.{minor}.{patch}
 #  - Main file will only control main version
@@ -75,6 +88,7 @@ app.include_router(health.router)
 g_prefix = "/api"
 app.include_router(analysis.router, prefix="/analysis")
 app.include_router(auth.router, prefix="/auth")
+app.include_router(charting.router, prefix="/charting")
 
 
 

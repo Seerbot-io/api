@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     REDIS_PORT: int | None
     REDIS_MAX_CONNECTIONS: int | None
     REDIS_SSL: bool | None
+    # Memory cache settings
+    MEMORY_CACHE_MAX_SIZE: int = 4 * 1024 * 1024 * 1024  # 4GB in bytes
+    REDIS_RECHECK_INTERVAL: int = 30 * 60  # 30 minutes in seconds
     
     # Debug settings
     DEBUG: bool = False
