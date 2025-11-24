@@ -7,7 +7,6 @@ from sqlalchemy import text
 from typing import Optional
 from app.db.session import get_db, get_tables, SessionLocal
 from app.schemas.charting import CachedRow
-import time
 import asyncio
 import json
 
@@ -17,9 +16,9 @@ group_tags = ["Charting"]
 
 # Map timeframes to table keys (same as in analysis.py)
 TIMEFRAME_MAP = {
-    '5m': 'f5m',
+    '5m': 'p5m',
     '30m': 'f30m',
-    '1h': 'f1h',
+    '1h': 'p1h',
     '4h': 'f4h',
     '1d': 'f1d',
 }
@@ -36,12 +35,8 @@ TIMEFRAME_DURATION_MAP = {
     '1d': 86400,
 }
 
-def get_timeframe_duration(timeframe: str) -> int:
-    """Get timeframe duration in seconds."""
-    return TIMEFRAME_DURATION_MAP.get(timeframe, 3600)
 
-
-@cache('at-e5m', key_prefix='get_chart_data')
+@cache('in-1m', key_prefix='chart_data')
 def get_chart_data(
     symbol: str,
     resolution: str,
@@ -66,6 +61,7 @@ def get_chart_data(
     Returns:
         List of CachedRow objects: (timestamp, open, high, low, close, volume)
     """
+    print(f"Getting chart data for {symbol} {resolution} {from_time} {to_time} {last_timestamp} {count_back}")
     # Create database session
     db = SessionLocal()
     try:
@@ -81,14 +77,22 @@ def get_chart_data(
         # Map timeframe to table key
         if timeframe not in TIMEFRAME_MAP:
             raise ValueError(f"Invalid timeframe: {timeframe}")
-        
+
+
         table_key = TIMEFRAME_MAP[timeframe]
         if table_key not in tables:
             raise ValueError(f"Table not found for timeframe: {timeframe}")
         
         f_table = tables[table_key]
-        timeframe_duration = get_timeframe_duration(timeframe)
+        timeframe_duration = TIMEFRAME_DURATION_MAP.get(timeframe, 3600)
         
+        if from_time is not None:
+            from_time = from_time - timeframe_duration  
+        if to_time is not None:
+            to_time = to_time - timeframe_duration
+        if last_timestamp is not None:
+            last_timestamp = last_timestamp - timeframe_duration
+
         # Build WHERE conditions
         where_conditions = [
             f"symbol = '{symbol_clean}'",
@@ -232,7 +236,7 @@ def format_tradingview_data(result: list) -> dict:
 
 
 @router.get("/config", tags=group_tags)
-@cache('at-e5m')
+@cache('in-1h')
 def get_config():
     """TradingView charting library configuration endpoint."""
     return {
@@ -247,7 +251,7 @@ def get_config():
 
 
 @router.get("/symbols", tags=group_tags)
-@cache('at-e5m')
+@cache('in-1h')
 def resolve_symbol(symbol: str):
     """TradingView resolveSymbol endpoint.
     
@@ -278,7 +282,7 @@ def resolve_symbol(symbol: str):
 
 
 @router.get("/search", tags=group_tags)
-@cache('at-e5m')
+@cache('in-1h')
 def search_symbols(
     query: Optional[str] = None,
     exchange: Optional[str] = None,
@@ -287,7 +291,6 @@ def search_symbols(
     db: Session = Depends(get_db)
 ):
     """TradingView searchSymbols endpoint.
-    
     - query: Search query string (optional)
     - exchange: Exchange filter (optional, not used currently)
     - symbol_type: Symbol type filter (optional, not used currently)
@@ -305,20 +308,15 @@ def search_symbols(
         FROM {f_table}
         WHERE symbol IS NOT NULL
     """
-    
     if query:
         query_clean = query.strip().upper().replace("'", "''")  # Escape single quotes
         search_sql += f" AND symbol LIKE '%{query_clean}%'"
-    
     search_sql += " ORDER BY symbol"
-    
     if limit:
         limit = max(1, min(100, limit))  # Limit between 1 and 100
         search_sql += f" LIMIT {limit}"
-    
     try:
         results = db.execute(text(search_sql)).fetchall()
-        
         # Format results for TradingView SearchSymbolResultItem format
         symbols = []
         for row in results:
@@ -337,9 +335,8 @@ def search_symbols(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
-
 @router.get("/history", tags=group_tags)
-@cache('at-e5m')
+@cache('in-5m')
 def get_bars(
     symbol: str,
     resolution: str,
@@ -376,23 +373,25 @@ def get_bars(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
+def generate_subscriber_id(symbol: str, resolution: str) -> str:
+    """Generate subscriber_id in format: BARS_{pair}_{resolution}"""
+    # Replace "/" with "_" in symbol for subscriber_id
+    pair = symbol.replace("/", "_")
+    return f"BARS_{pair}_{resolution}"
 
 @router.websocket("/streaming")
 async def subscribe_bars(websocket: WebSocket):
     """TradingView subscribeBars/unsubscribeBars WebSocket endpoint.
-    
-    Expected message format:
+        Expected message format:
     {
         "action": "subscribe" | "unsubscribe",
-        "subscriber_id": "unique_id_123",
         "symbol": "USDM/ADA",
         "resolution": "5m"
     }
-    
+    Note: subscriber_id is automatically generated as "BARS_{pair}_{resolution}"
     Response format:
     {
-        "subscriber_id": "unique_id_123",
+        "subscriber_id": "BARS_USDM_ADA_5m",
         "symbol": "USDM/ADA",
         "timestamp": 1234567890,
         "open": 100.0,
@@ -406,8 +405,9 @@ async def subscribe_bars(websocket: WebSocket):
     
     # Track subscriptions with subscriber IDs
     # Format: {subscriber_id: {"symbol": str, "resolution": str, "last_timestamp": int}}
+    # subscriber_id format: "BARS_{pair}_{resolution}" (e.g., "BARS_USDM_ADA_5m")
     subscriptions = {}
-    
+        
     try:
         # Handle messages and send updates in a loop
         while True:
@@ -416,18 +416,20 @@ async def subscribe_bars(websocket: WebSocket):
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
                 message = json.loads(data)
                 action = message.get("action")
-                subscriber_id = message.get("subscriber_id", "")
                 symbol = message.get("symbol", "").strip().replace("_", "/").upper()
                 resolution = message.get("resolution", "")
                 
                 if action == "subscribe":
-                    if subscriber_id and symbol and resolution:
+                    if symbol and resolution:
                         if resolution not in SUPPORTED_RESOLUTIONS:
+                            subscriber_id = generate_subscriber_id(symbol, resolution)
                             await websocket.send_json({
                                 "error": f"Invalid resolution: {resolution}",
                                 "subscriber_id": subscriber_id
                             })
                         else:
+                            # Generate subscriber_id automatically
+                            subscriber_id = generate_subscriber_id(symbol, resolution)
                             subscriptions[subscriber_id] = {
                                 "symbol": symbol,
                                 "resolution": resolution,
@@ -441,21 +443,31 @@ async def subscribe_bars(websocket: WebSocket):
                             })
                     else:
                         await websocket.send_json({
-                            "error": "Missing required fields: subscriber_id, symbol, or resolution",
-                            "subscriber_id": subscriber_id if subscriber_id else ""
+                            "error": "Missing required fields: symbol or resolution",
+                            "subscriber_id": ""
                         })
                 
                 elif action == "unsubscribe":
-                    if subscriber_id in subscriptions:
-                        del subscriptions[subscriber_id]
-                        await websocket.send_json({
-                            "status": "unsubscribed",
-                            "subscriber_id": subscriber_id
-                        })
+                    if symbol and resolution:
+                        # Generate subscriber_id from symbol and resolution
+                        subscriber_id = generate_subscriber_id(symbol, resolution)
+                        if subscriber_id in subscriptions:
+                            del subscriptions[subscriber_id]
+                            await websocket.send_json({
+                                "status": "unsubscribed",
+                                "subscriber_id": subscriber_id,
+                                "symbol": symbol,
+                                "resolution": resolution
+                            })
+                        else:
+                            await websocket.send_json({
+                                "error": f"Subscription not found for subscriber_id: {subscriber_id}",
+                                "subscriber_id": subscriber_id
+                            })
                     else:
                         await websocket.send_json({
-                            "error": f"Subscription not found for subscriber_id: {subscriber_id}",
-                            "subscriber_id": subscriber_id
+                            "error": "Missing required fields: symbol or resolution",
+                            "subscriber_id": ""
                         })
                 
             except asyncio.TimeoutError:
@@ -467,15 +479,18 @@ async def subscribe_bars(websocket: WebSocket):
                 await websocket.send_json({"error": str(e)})
             
             # Send real-time updates for all active subscriptions
-            print(f"Subscriptions: {subscriptions}")
+            # print(f"Subscriptions: {subscriptions}")
             if subscriptions:
                 for subscriber_id, sub_info in subscriptions.items():
                     symbol = sub_info["symbol"]
                     resolution = sub_info["resolution"]
                     last_timestamp = sub_info["last_timestamp"]
+                    # print(f"Last timestamp: {last_timestamp}")
                     
                     try:
                         # Get latest bar after last_timestamp
+                        # last_timestamp stores the open_time of the last bar we sent
+                        # Query for bars where open_time > last_timestamp to get new bars
                         result = get_chart_data(
                             symbol=symbol,
                             resolution=resolution,
@@ -485,32 +500,32 @@ async def subscribe_bars(websocket: WebSocket):
                         
                         if result and len(result) > 0:
                             row = result[0]
-                            
-                            # Get timeframe for timestamp calculation
-                            timeframe = resolution
-                            timeframe_duration = get_timeframe_duration(timeframe)
-                            # Update last timestamp (open_time = timestamp - duration)
-                            open_time = int(row.timestamp) - timeframe_duration
-                            subscriptions[subscriber_id]["last_timestamp"] = open_time
-                            
-                            # Send update to this specific subscriber
-                            # print(f"Sending update to {subscriber_id} for {symbol}")
-                            await websocket.send_json({
-                                "subscriber_id": subscriber_id,
-                                "symbol": symbol,
-                                "timestamp": int(row.timestamp) if row.timestamp else 0,
-                                "open": float(row.open) if row.open is not None else 0.0,
-                                "high": float(row.high) if row.high is not None else 0.0,
-                                "low": float(row.low) if row.low is not None else 0.0,
-                                "close": float(row.close) if row.close is not None else 0.0,
-                                "volume": float(row.volume) if row.volume is not None else 0.0,
-                            })
+                            current_timestamp = int(row.timestamp) if row.timestamp else 0
+                                                        
+                            # Only send if this is a new bar (open_time > last_timestamp)
+                            # This prevents sending duplicate bars when no new data is available
+                            if last_timestamp == 0 or current_timestamp > last_timestamp:
+                                # Update last_timestamp to the open_time of this bar
+                                # Next query will get bars that opened after this bar
+                                subscriptions[subscriber_id]["last_timestamp"] = current_timestamp
+                                
+                                # Send update to this specific subscriber
+                                await websocket.send_json({
+                                    "subscriber_id": subscriber_id,
+                                    "symbol": symbol,
+                                    "timestamp": current_timestamp,
+                                    "open": float(row.open) if row.open is not None else 0.0,
+                                    "high": float(row.high) if row.high is not None else 0.0,
+                                    "low": float(row.low) if row.low is not None else 0.0,
+                                    "close": float(row.close) if row.close is not None else 0.0,
+                                    "volume": float(row.volume) if row.volume is not None else 0.0,
+                                })
                     except Exception as e:
                         # Log error but continue
                         print(f"Error querying data for {symbol} (subscriber {subscriber_id}): {e}")
             
             # Wait before next update (poll every 60 seconds)
-            await asyncio.sleep(2)
+            await asyncio.sleep(10)
                 
     except WebSocketDisconnect:
         print("WebSocket disconnected")
@@ -518,6 +533,6 @@ async def subscribe_bars(websocket: WebSocket):
         print(f"WebSocket error: {e}")
         try:
             await websocket.send_json({"error": str(e)})
-        except:
+        except Exception:
             pass
 

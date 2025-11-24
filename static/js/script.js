@@ -159,18 +159,16 @@ function subscribe() {
         return;
     }
     
-    const subscriberId = document.getElementById('subscriberId').value;
     const symbol = document.getElementById('symbol').value;
     const resolution = document.getElementById('resolution').value;
     
-    if (!subscriberId || !symbol || !resolution) {
-        addMessage('error', 'Error', 'Please fill in all fields');
+    if (!symbol || !resolution) {
+        addMessage('error', 'Error', 'Please fill in symbol and resolution');
         return;
     }
     
     const message = {
         action: 'subscribe',
-        subscriber_id: subscriberId,
         symbol: symbol,
         resolution: resolution
     };
@@ -185,16 +183,18 @@ function unsubscribe() {
         return;
     }
     
-    const subscriberId = document.getElementById('subscriberId').value;
+    const symbol = document.getElementById('symbol').value;
+    const resolution = document.getElementById('resolution').value;
     
-    if (!subscriberId) {
-        addMessage('error', 'Error', 'Please enter subscriber ID');
+    if (!symbol || !resolution) {
+        addMessage('error', 'Error', 'Please fill in symbol and resolution');
         return;
     }
     
     const message = {
         action: 'unsubscribe',
-        subscriber_id: subscriberId
+        symbol: symbol,
+        resolution: resolution
     };
     
     ws.send(JSON.stringify(message));
@@ -207,11 +207,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (e.key === 'Enter') connect();
     });
     
-    document.getElementById('subscriberId').addEventListener('keypress', function(e) {
+    document.getElementById('symbol').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') subscribe();
     });
     
-    document.getElementById('symbol').addEventListener('keypress', function(e) {
+    document.getElementById('resolution').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') subscribe();
     });
 });

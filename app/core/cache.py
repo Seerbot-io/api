@@ -30,16 +30,13 @@ def seconds_until_next_interval(minutes: int, *, now: datetime | None = None) ->
         raise ValueError("minutes must be positive")
 
     start = (now or _utc_now())
-    current = start.replace(second=0)
+    current = start.replace(second=0)    
     next_minute = (current.minute // minutes + 1) * minutes
 
-    if next_minute >= 60:
-        boundary = current.replace(minute=0) + timedelta(hours=1)
-    else:
-        boundary = current.replace(minute=next_minute)
+    boundary = current.replace(minute=next_minute)
 
     delta = int((boundary - start).total_seconds())
-    return max(delta, 1)
+    return max(delta, 5)
 
 
 def seconds_until_hour_minute(minute_mark: int, *, now: datetime | None = None) -> int:
@@ -55,7 +52,7 @@ def seconds_until_hour_minute(minute_mark: int, *, now: datetime | None = None) 
         boundary += timedelta(hours=1)
 
     delta = int((boundary - current).total_seconds())
-    return max(delta, 1)
+    return max(delta, 5)
 
 
 def _static_ttl(seconds: int) -> CacheTTLFactory:

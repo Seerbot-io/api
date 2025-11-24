@@ -24,16 +24,12 @@
                 <button id="disconnectBtn" class="btn-disconnect" onclick="disconnect()" disabled>Disconnect</button>
             </div>
             
-            <div class="form-row" style="margin-top: 20px;">
-                <div class="form-group">
-                    <label>Subscriber ID</label>
-                    <input type="text" id="subscriberId" value="test_subscriber_1" placeholder="unique_id_123">
-                </div>
-                
-                <div class="form-group">
-                    <label>Symbol</label>
-                    <input type="text" id="symbol" value="USDM/ADA" placeholder="USDM/ADA">
-                </div>
+            <div class="form-group" style="margin-top: 20px;">
+                <label>Symbol</label>
+                <input type="text" id="symbol" value="USDM/ADA" placeholder="USDM/ADA">
+                <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                    Subscriber ID will be auto-generated as: bar_{symbol}_{resolution}
+                </small>
             </div>
             
             <div class="form-group">
