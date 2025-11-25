@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional
 from app.db.session import get_db, get_tables, SessionLocal
-from app.schemas.charting import CachedRow
 import asyncio
 import json
+from app.models.pools import Pool
 
 router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)
@@ -37,7 +37,7 @@ TIMEFRAME_DURATION_MAP = {
 
 
 @cache('in-1m', key_prefix='chart_data_impl')
-def _get_chart_data_impl(
+def get_chart_data(
     symbol: str,
     resolution: str,
     from_time: Optional[int] = None,
@@ -140,32 +140,6 @@ def _get_chart_data_impl(
         try:
             result = db.execute(text(query)).fetchall()
             
-            # If countBack is specified and we don't have enough bars, try to get earlier bars
-            # This meets TradingView's requirement to return countBack bars even if range is insufficient
-            if count_back is not None and len(result) < count_back and from_time is not None:
-                additional_needed = count_back - len(result)
-                earlier_query = f"""
-                    SELECT 
-                        open_time + {timeframe_duration} as timestamp,
-                        open,
-                        high,
-                        low,
-                        close,
-                        volume
-                    FROM {f_table}
-                    WHERE symbol = '{symbol_clean}'
-                        AND open IS NOT NULL 
-                        AND close IS NOT NULL
-                        AND open_time < {from_time}
-                    ORDER BY open_time DESC
-                    LIMIT {additional_needed}
-                """
-                earlier_result = db.execute(text(earlier_query)).fetchall()
-                # Combine results: earlier bars (reversed to maintain ASC order) + current bars
-                all_results = list(reversed(earlier_result)) + list(result)
-                result = all_results[:count_back] if len(all_results) > count_back else all_results
-            
-            # Convert Row objects to dicts for caching
             return [
                 {
                     'timestamp': row.timestamp,
@@ -183,52 +157,6 @@ def _get_chart_data_impl(
     finally:
         db.close()
 
-
-def get_chart_data(
-    symbol: str,
-    resolution: str,
-    from_time: Optional[int] = None,
-    to_time: Optional[int] = None,
-    last_timestamp: Optional[int] = None,
-    count_back: Optional[int] = None
-) -> list:
-    """Wrapper that converts cached dict rows into CachedRow objects."""
-    raw_result = _get_chart_data_impl(
-        symbol=symbol,
-        resolution=resolution,
-        from_time=from_time,
-        to_time=to_time,
-        last_timestamp=last_timestamp,
-        count_back=count_back
-    )
-    
-    normalized = []
-    for idx, item in enumerate(raw_result):
-        if isinstance(item, CachedRow):
-            normalized.append(item)
-        elif isinstance(item, dict):
-            normalized.append(CachedRow(item))
-        elif isinstance(item, str):
-            # Skip stale stringified cache entries
-            print(f"Warning: Skipping string item at index {idx} in get_chart_data result")
-            continue
-        else:
-            try:
-                normalized.append(CachedRow({
-                    'timestamp': getattr(item, 'timestamp', None),
-                    'open': getattr(item, 'open', None),
-                    'high': getattr(item, 'high', None),
-                    'low': getattr(item, 'low', None),
-                    'close': getattr(item, 'close', None),
-                    'volume': getattr(item, 'volume', None),
-                }))
-            except Exception as e:
-                print(f"Warning: Could not convert item at index {idx} to CachedRow: {e}")
-    
-    if len(normalized) < len(raw_result):
-        print(f"Warning: Filtered out {len(raw_result) - len(normalized)} corrupted cache entries in get_chart_data")
-    
-    return normalized
 
 
 def format_tradingview_data(result: list) -> dict:
@@ -260,17 +188,12 @@ def format_tradingview_data(result: list) -> dict:
     volumes = []
     
     for row in result:
-        if isinstance(row, dict):
-            row = CachedRow(row)
-        elif not isinstance(row, CachedRow):
-            continue
-        
-        timestamps.append(int(row.timestamp) if row.timestamp else 0)
-        opens.append(float(row.open) if row.open is not None else 0.0)
-        highs.append(float(row.high) if row.high is not None else 0.0)
-        lows.append(float(row.low) if row.low is not None else 0.0)
-        closes.append(float(row.close) if row.close is not None else 0.0)
-        volumes.append(float(row.volume) if row.volume is not None else 0.0)
+        timestamps.append(int(row['timestamp']) if row['timestamp'] else 0)
+        opens.append(float(row['open']) if row['open'] is not None else 0.0)
+        highs.append(float(row['high']) if row['high'] is not None else 0.0)
+        lows.append(float(row['low']) if row['low'] is not None else 0.0)
+        closes.append(float(row['close']) if row['close'] is not None else 0.0)
+        volumes.append(float(row['volume']) if row['volume'] is not None else 0.0)
     
     return {
         "s": "ok",
@@ -283,7 +206,7 @@ def format_tradingview_data(result: list) -> dict:
     }
 
 
-@router.get("/config", tags=group_tags)
+@router.get("charting/config", tags=group_tags)
 @cache('in-1h')
 def get_config():
     """TradingView charting library configuration endpoint."""
@@ -298,20 +221,20 @@ def get_config():
     }
 
 
-@router.get("/symbols", tags=group_tags)
+@router.get("/charting/pairs/{pair}", tags=group_tags)
 @cache('in-1h')
-def resolve_symbol(symbol: str):
+def resolve_pair(pair: str):
     """TradingView resolveSymbol endpoint.
     
-    - symbol: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
+    - pair: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
     """
     # Normalize symbol format
-    symbol_clean = symbol.strip().replace("_", "/").upper()
+    pair_clean = pair.strip().replace("_", "/").upper()
     
     return {
-        "name": symbol_clean,
-        "ticker": symbol_clean,
-        "description": f"{symbol_clean} Trading Pair",
+        "name": pair_clean,
+        "ticker": pair_clean,
+        "description": f"{pair_clean} Trading Pair",
         "type": "crypto",
         "session": "24x7",
         "timezone": "Etc/UTC",
@@ -329,9 +252,9 @@ def resolve_symbol(symbol: str):
     }
 
 
-@router.get("/search", tags=group_tags)
+@router.get("charting/pairs", tags=group_tags)
 @cache('in-1h')
-def search_symbols(
+def search_pairs(
     query: Optional[str] = None,
     exchange: Optional[str] = None,
     symbol_type: Optional[str] = None,
@@ -344,38 +267,29 @@ def search_symbols(
     - symbol_type: Symbol type filter (optional, not used currently)
     - limit: Maximum number of results (default: 50, max: 100)
     """
-    # Get distinct symbols from the database
-    # Query from one of the signal tables to get available trading pairs
-    f_table = tables.get('f5m')  # Use 5m table to get symbols
+    # Build query
+    query_obj = db.query(Pool)
     
-    if not f_table:
-        return []
-    
-    search_sql = f"""
-        SELECT DISTINCT symbol
-        FROM {f_table}
-        WHERE symbol IS NOT NULL
-    """
-    if query:
-        query_clean = query.strip().upper().replace("'", "''")  # Escape single quotes
-        search_sql += f" AND symbol LIKE '%{query_clean}%'"
-    search_sql += " ORDER BY symbol"
+    # Apply search filter if provided
+    if query_obj:
+        query_obj = query_obj.filter(Pool.pair.ilike(f"%{query.strip()}%"))
+
     if limit:
         limit = max(1, min(100, limit))  # Limit between 1 and 100
-        search_sql += f" LIMIT {limit}"
+        query_obj = query_obj.limit(limit)
     try:
-        results = db.execute(text(search_sql)).fetchall()
+        results = query_obj.all()
         # Format results for TradingView SearchSymbolResultItem format
         symbols = []
         for row in results:
-            symbol = row.symbol if row.symbol else ''
-            if symbol:
-                symbol_clean = symbol.strip().replace("_", "/").upper()
+            pair = row.pair if row.pair else ''
+            if pair:
+                pair_clean = pair.strip().replace("_", "/").upper()
                 symbols.append({
-                    "symbol": symbol_clean,
-                    "description": f"{symbol_clean} Trading Pair",
+                    "pair": pair_clean,
+                    "description": f"{pair_clean} Trading Pair",
                     "exchange": "",
-                    "ticker": symbol_clean,
+                    "ticker": pair_clean,
                     "type": "crypto"
                 })
         
@@ -383,10 +297,10 @@ def search_symbols(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
-@router.get("/history", tags=group_tags)
+@router.get("/charting/history/{pair}", tags=group_tags)
 @cache('in-5m')
 def get_bars(
-    symbol: str,
+    pair: str,
     resolution: str,
     from_: int,
     to: int,
@@ -394,7 +308,7 @@ def get_bars(
 ):
     """TradingView getBars endpoint (historical data).
     
-    - symbol: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
+    - pair: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
     - resolution: Chart resolution ('5m', '30m', '1h', '4h', '1d')
     - from_: Start timestamp in seconds
     - to: End timestamp in seconds (exclusive)
@@ -402,18 +316,13 @@ def get_bars(
     """
     try:
         result = get_chart_data(
-            symbol=symbol,
+            pair=pair,
             resolution=resolution,
             from_time=from_,
             to_time=to,
             count_back=count_back
         )
         
-        # Ensure at least 2 bars as per TradingView requirements (if we have data)
-        # If countBack is specified, we already handled it in get_chart_data
-        if len(result) < 2 and count_back is None and len(result) > 0:
-            # Return what we have - TradingView will handle it
-            pass
         
         return format_tradingview_data(result)
     except ValueError as e:
@@ -548,13 +457,7 @@ async def subscribe_bars(websocket: WebSocket):
                         
                         if result and len(result) > 0:
                             row = result[0]
-                            if isinstance(row, dict):
-                                row = CachedRow(row)
-                            elif not isinstance(row, CachedRow):
-                                print(f"Unexpected row type from get_chart_data: {type(row)}")
-                                continue
-                            
-                            current_timestamp = int(row.timestamp) if row.timestamp else 0
+                            current_timestamp = int(row['timestamp']) if row['timestamp'] else 0
                                                         
                             # Only send if this is a new bar (open_time > last_timestamp)
                             # This prevents sending duplicate bars when no new data is available
@@ -568,11 +471,11 @@ async def subscribe_bars(websocket: WebSocket):
                                     "subscriber_id": subscriber_id,
                                     "symbol": symbol,
                                     "timestamp": current_timestamp,
-                                    "open": float(row.open) if row.open is not None else 0.0,
-                                    "high": float(row.high) if row.high is not None else 0.0,
-                                    "low": float(row.low) if row.low is not None else 0.0,
-                                    "close": float(row.close) if row.close is not None else 0.0,
-                                    "volume": float(row.volume) if row.volume is not None else 0.0,
+                                    "open": float(row['open']) if row['open'] is not None else 0.0,
+                                    "high": float(row['high']) if row['high'] is not None else 0.0,
+                                    "low": float(row['low']) if row['low'] is not None else 0.0,
+                                    "close": float(row['close']) if row['close'] is not None else 0.0,
+                                    "volume": float(row['volume']) if row['volume'] is not None else 0.0,
                                 })
                     except Exception as e:
                         # Log error but continue

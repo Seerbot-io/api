@@ -1,13 +1,14 @@
+import asyncio
 from datetime import datetime
 from app.core.config import settings
 import app.schemas.analysis as schemas
 from app.core.router_decorated import APIRouter
 from app.core.cache import cache
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from sqlalchemy import text, or_
 from typing import List, Optional
-from app.db.session import get_db, get_tables
+from app.db.session import get_db, get_tables, SessionLocal
 from app.models.tokens import Token
 from app.models.swaps import Swap
 from app.core.dependencies import get_current_user
@@ -15,6 +16,27 @@ from app.core.dependencies import get_current_user
 router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)
 group_tags=["Api"]
+
+# Map timeframes to table keys (same as in analysis.py)
+TIMEFRAME_MAP = {
+    '5m': 'p5m',
+    '30m': 'f30m',
+    '1h': 'p1h',
+    '4h': 'f4h',
+    '1d': 'f1d',
+}
+
+# Supported resolutions for TradingView
+SUPPORTED_RESOLUTIONS = ['5m', '30m', '1h', '4h', '1d']
+
+# Get timeframe duration in seconds
+TIMEFRAME_DURATION_MAP = {
+    '5m': 300,
+    '30m': 1800,
+    '1h': 3600,
+    '4h': 14400,
+    '1d': 86400,
+}
 
 def get_token_price_usd(token: str, db: Session) -> float:
     """
@@ -179,14 +201,14 @@ def get_indicators(
             response_model=List[schemas.Token])
 @cache('at-e5m')
 def get_tokens(
-    search: Optional[str] = None,
+    query: Optional[str] = None,
     limit: Optional[int] = None,
     offset: Optional[int] = None,
     db: Session = Depends(get_db)
 ) -> List[schemas.Token]:
     """Search or list available tokens
     
-    - search: Search keyword to filter tokens by name or symbol (optional)
+    - query: query keyword to filter tokens by name or symbol (optional)
     - limit: Maximum number of records to return (optional)
     - offset: Number of records to skip (optional)
     
@@ -196,30 +218,30 @@ def get_tokens(
     - symbol: Token symbol
     """
     # Build query
-    query = db.query(Token)
+    query_obj = db.query(Token)
     
-    # Apply search filter if provided
-    if search:
-        search_term = f"%{search.strip()}%"
-        query = query.filter(
+    # Apply query filter if provided
+    if query:
+        query_term = f"%{query.strip()}%"
+        query_obj = query_obj.filter(
             or_(
-                Token.name.ilike(search_term),
-                Token.symbol.ilike(search_term)
+                Token.name.ilike(query_term),
+                Token.symbol.ilike(query_term)
             )
         )
     
     # Apply offset if provided
     if offset is not None:
         offset = max(0, offset)
-        query = query.offset(offset)
+        query_obj = query_obj.offset(offset)
     
     # Apply limit if provided
     if limit is not None:
         limit = max(1, limit)
-        query = query.limit(limit)
+        query_obj = query_obj.limit(limit)
     
     # Execute query
-    tokens = query.all()
+    tokens = query_obj.all()
     
     # Convert to response format
     return [
@@ -458,44 +480,26 @@ def get_swaps(
     )
 
 
-@router.get("/toptraders",
-            tags=group_tags,
-            response_model=schemas.TopTradersResponse)
-@cache('at-e5m')
-def get_top_traders(
-    limit: int = 10,
-    metric: str = 'volume',
-    period: str = '24h',
-    pair: Optional[str] = None,
-    db: Session = Depends(get_db)
-) -> schemas.TopTradersResponse:
-    """Retrieves a list of top traders based on trading volume or number of trades.
-    
-    - limit: Number of top traders to return (default: 10, max: 100)
-    - metric: Ranking metric ('volume', 'trades', default: 'volume')
-    - period: Time period ('24h', '7d', '30d', 'all', default: '24h')
-    - pair: Filter by trading pair (optional, e.g., 'USDM/ADA' or 'USDM_ADA')
-    
-    Total volume is calculated by summing the pre-calculated 'value' field from swap transactions.
-    
-    OUTPUT:
-    - traders: Array of trader objects with user_id, total_volume, total_trades, rank
-    - period: Selected time period
-    - timestamp: Data timestamp in seconds
-    """
-    # Validate and adjust limit
+
+@cache('in-5m')
+def _fetch_top_traders_data(
+    limit: int,
+    metric: str,
+    period: str,
+    pair: Optional[str]
+) -> List[dict]:
+    """Core logic for retrieving top trader stats."""
     limit = max(1, min(100, limit))
-    
-    # Validate metric
+
     metric_lower = metric.strip().lower()
     valid_metrics = ['volume', 'trades']
     if metric_lower not in valid_metrics:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"Invalid metric: {metric}. Valid values: {', '.join(valid_metrics)}"
         )
-    
-    # Validate period
+    metric_lower = 'total_' + metric_lower
+
     period_lower = period.strip().lower()
     valid_periods = ['24h', '7d', '30d', 'all']
     if period_lower not in valid_periods:
@@ -503,8 +507,7 @@ def get_top_traders(
             status_code=400,
             detail=f"Invalid period: {period}. Valid values: {', '.join(valid_periods)}"
         )
-    
-    # Calculate time range
+
     current_time = int(datetime.now().timestamp())
     time_filters = {
         '24h': current_time - 24 * 60 * 60,
@@ -513,44 +516,19 @@ def get_top_traders(
         'all': None
     }
     time_threshold = time_filters.get(period_lower)
-    
-    # Build WHERE conditions
+
     where_conditions = ["status = 'completed'"]
-    
-    # Apply time filter
     if time_threshold is not None:
         where_conditions.append(f"timestamp >= {time_threshold}")
-    
-    # Apply pair filter if provided
+
     if pair:
-        pair_clean = pair.strip().replace("_", "/").upper()
-        # Split pair into tokens
-        if '/' in pair_clean:
-            token1, token2 = pair_clean.split('/', 1)
-            # Escape single quotes for SQL safety
-            token1_escaped = token1.replace("'", "''")
-            token2_escaped = token2.replace("'", "''")
-            # Check if pair matches either from_token/to_token or to_token/from_token
-            where_conditions.append(
-                f"((from_token = '{token1_escaped}' AND to_token = '{token2_escaped}') OR "
-                f"(from_token = '{token2_escaped}' AND to_token = '{token1_escaped}'))"
-            )
-        else:
-            # If no slash, treat as single token and match either from or to
-            pair_escaped = pair_clean.replace("'", "''")
-            where_conditions.append(f"(from_token = '{pair_escaped}' OR to_token = '{pair_escaped}')")
-    
+        token1, token2 = token1, token2 = pair.split('_', 1)
+        where_conditions.append(
+            f"from_token in ('{token1}', '{token2}') "
+            f"AND to_token in ('{token1}', '{token2}')"
+        )
+
     where_clause = " AND ".join(where_conditions)
-    
-    # Build ORDER BY clause based on metric
-    order_by_clause = ""
-    if metric_lower == 'volume':
-        order_by_clause = "ORDER BY total_volume DESC"
-    elif metric_lower == 'trades':
-        order_by_clause = "ORDER BY total_trades DESC"
-    
-    # Build PostgreSQL query
-    # Use value field (transaction volume) instead of calculating from_amount * price
     query = f"""
         SELECT 
             user_id,
@@ -559,27 +537,77 @@ def get_top_traders(
         FROM proddb.swap_transactions
         WHERE {where_clause}
         GROUP BY user_id
-        {order_by_clause}
+        ORDER BY {metric_lower} DESC
         LIMIT {limit}
     """
-    
-    # Execute query
-    results = db.execute(text(query)).fetchall()
-    
-    # Convert to response format
+
+    db = SessionLocal()
+    try:
+        results = db.execute(text(query)).fetchall()
+    finally:
+        db.close()
+
     traders = []
     for idx, row in enumerate(results, start=1):
         traders.append(
-            schemas.Trader(
-                user_id=row.user_id or '',
-                total_volume=float(row.total_volume) if row.total_volume else 0.0,
-                total_trades=int(row.total_trades) if row.total_trades else 0,
-                rank=idx
-            )
+            {
+                "user_id": row.user_id or '',
+                "total_volume": float(row.total_volume) if row.total_volume else 0.0,
+                "total_trades": int(row.total_trades) if row.total_trades else 0,
+                "rank": idx,
+                "period": period_lower,
+                "timestamp": current_time
+            }
         )
+    return traders
+
+
+@router.get("/toptraders",
+            tags=group_tags,
+            response_model=List[schemas.Trader])
+@cache('in-5m', value_type=List[schemas.Trader])
+def get_top_traders(
+    limit: int = 10,
+    metric: str = 'volume',
+    period: str = 'all',
+    pair: Optional[str] = None
+) -> List[schemas.Trader]:
+    """Retrieves a list of top traders based on trading volume or number of trades."""
+    raw_traders = _fetch_top_traders_data(limit=limit, metric=metric, period=period, pair=pair)
+    return [
+        schemas.Trader(
+            user_id=trader["user_id"],
+            total_volume=trader["total_volume"],
+            total_trades=trader["total_trades"],
+            rank=trader["rank"]
+        )
+        for trader in raw_traders
+    ]
     
-    return schemas.TopTradersResponse(
-        traders=traders,
-        period=period_lower,
-        timestamp=current_time
-    )
+@router.websocket("/toptraders/ws")
+async def top_traders_ws(
+    websocket: WebSocket,
+    limit: int = 10,
+    metric: str = 'volume',
+    period: str = 'all',
+    pair: Optional[str] = None
+):
+    """WebSocket endpoint streaming top trader snapshots."""
+    await websocket.accept()
+    try:
+        while True:
+            try:
+                traders = _fetch_top_traders_data(
+                    limit=limit,
+                    metric=metric,
+                    period=period,
+                    pair=pair
+                )
+            except HTTPException as exc:
+                await websocket.send_json({"error": exc.detail})
+                await websocket.close(code=1003)
+                return
+            await websocket.send_json(traders)
+            await asyncio.sleep(10)
+    except WebSocketDisconnect:
+        pass

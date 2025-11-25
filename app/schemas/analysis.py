@@ -176,9 +176,4 @@ class Trader(CustormBaseModel):
     @field_validator("total_volume")
     def round_value(cls, v: float) -> float:
         return round(v, 2)
-
-class TopTradersResponse(CustormBaseModel):
-    traders: List[Trader] = []
-    period: str = ''
-    timestamp: int = 0
-    
+        

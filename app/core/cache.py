@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from threading import Lock
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, get_args, get_origin
 
 from redis import Connection, ConnectionPool, Redis, SSLConnection
 
@@ -344,7 +344,7 @@ def _make_cache_key(func_name: str, args: tuple, kwargs: dict) -> str:
     return f"cache:{hashlib.md5(key_str.encode()).hexdigest()}"
 
 
-def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None):
+def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None, value_type: Any = None):
     """
     Decorator for caching function results with hybrid Redis + memory fallback.
     
@@ -360,6 +360,49 @@ def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None):
     def decorator(func: Callable) -> Callable:
         func_name = key_prefix or f"{func.__module__}.{func.__name__}"
         
+        def _serialize_value(value: Any) -> Any:
+            """Convert value to JSON-serializable data."""
+            if hasattr(value, "model_dump"):
+                return value.model_dump()
+            if isinstance(value, list):
+                return [_serialize_value(item) for item in value]
+            if isinstance(value, tuple):
+                return [_serialize_value(item) for item in value]
+            if isinstance(value, dict):
+                return {
+                    key: _serialize_value(val)
+                    for key, val in value.items()
+                }
+            return value
+
+        def _deserialize_single(target: Any, data: Any) -> Any:
+            if target is None:
+                return data
+            if isinstance(target, type):
+                if hasattr(target, "model_validate"):
+                    return target.model_validate(data)
+                if isinstance(data, dict):
+                    try:
+                        return target(**data)
+                    except TypeError:
+                        pass
+                return target(data)
+            if callable(target):
+                return target(data)
+            return data
+
+        def _deserialize_value(payload: Any) -> Any:
+            if payload is None or value_type is None:
+                return payload
+
+            origin = get_origin(value_type)
+            if origin in (list, tuple):
+                inner_type = get_args(value_type)[0] if get_args(value_type) else None
+                converted = [_deserialize_single(inner_type, item) for item in payload]
+                return converted if origin is list else tuple(converted)
+
+            return _deserialize_single(value_type, payload)
+
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
             # Generate cache key
@@ -368,13 +411,13 @@ def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None):
             # Try to get from cache
             cached = cache_manager.get(cache_key)
             if cached is not None:
-                return cached
+                return _deserialize_value(cached)
             
             # Execute function
             result = await func(*args, **kwargs)
             
             # Store in cache
-            cache_manager.set(cache_key, result, cache_type)
+            cache_manager.set(cache_key, _serialize_value(result), cache_type)
             
             return result
         
@@ -386,13 +429,13 @@ def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None):
             # Try to get from cache
             cached = cache_manager.get(cache_key)
             if cached is not None:
-                return cached
+                return _deserialize_value(cached)
             
             # Execute function
             result = func(*args, **kwargs)
             
             # Store in cache
-            cache_manager.set(cache_key, result, cache_type)
+            cache_manager.set(cache_key, _serialize_value(result), cache_type)
             
             return result
         
