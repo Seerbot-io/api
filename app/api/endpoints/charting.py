@@ -36,8 +36,8 @@ TIMEFRAME_DURATION_MAP = {
 }
 
 
-@cache('in-1m', key_prefix='chart_data')
-def get_chart_data(
+@cache('in-1m', key_prefix='chart_data_impl')
+def _get_chart_data_impl(
     symbol: str,
     resolution: str,
     from_time: Optional[int] = None,
@@ -47,8 +47,7 @@ def get_chart_data(
 ) -> list:
     """Fetch OHLCV data from database for charting.
     
-    Creates its own database session internally. Can be cached for historical queries.
-    Real-time queries (with last_timestamp) will have unique cache keys and effectively bypass cache.
+    Creates its own database session internally. Returns dicts for proper JSON serialization.
     
     Args:
         symbol: Trading pair symbol (e.g., 'USDM/ADA')
@@ -59,9 +58,8 @@ def get_chart_data(
         count_back: Required number of bars (optional, for TradingView getBars)
     
     Returns:
-        List of CachedRow objects: (timestamp, open, high, low, close, volume)
+        List of dicts with keys: timestamp, open, high, low, close, volume
     """
-    print(f"Getting chart data for {symbol} {resolution} {from_time} {to_time} {last_timestamp} {count_back}")
     # Create database session
     db = SessionLocal()
     try:
@@ -167,8 +165,8 @@ def get_chart_data(
                 all_results = list(reversed(earlier_result)) + list(result)
                 result = all_results[:count_back] if len(all_results) > count_back else all_results
             
-            # Convert Row objects to dicts for caching, then to CachedRow objects
-            dict_results = [
+            # Convert Row objects to dicts for caching
+            return [
                 {
                     'timestamp': row.timestamp,
                     'open': row.open,
@@ -179,13 +177,58 @@ def get_chart_data(
                 }
                 for row in result
             ]
-            # Convert dicts to CachedRow objects for consistent return format
-            return [CachedRow(row_dict) for row_dict in dict_results]
                 
         except Exception as e:
             raise Exception(f"Database query error: {str(e)}")
     finally:
         db.close()
+
+
+def get_chart_data(
+    symbol: str,
+    resolution: str,
+    from_time: Optional[int] = None,
+    to_time: Optional[int] = None,
+    last_timestamp: Optional[int] = None,
+    count_back: Optional[int] = None
+) -> list:
+    """Wrapper that converts cached dict rows into CachedRow objects."""
+    raw_result = _get_chart_data_impl(
+        symbol=symbol,
+        resolution=resolution,
+        from_time=from_time,
+        to_time=to_time,
+        last_timestamp=last_timestamp,
+        count_back=count_back
+    )
+    
+    normalized = []
+    for idx, item in enumerate(raw_result):
+        if isinstance(item, CachedRow):
+            normalized.append(item)
+        elif isinstance(item, dict):
+            normalized.append(CachedRow(item))
+        elif isinstance(item, str):
+            # Skip stale stringified cache entries
+            print(f"Warning: Skipping string item at index {idx} in get_chart_data result")
+            continue
+        else:
+            try:
+                normalized.append(CachedRow({
+                    'timestamp': getattr(item, 'timestamp', None),
+                    'open': getattr(item, 'open', None),
+                    'high': getattr(item, 'high', None),
+                    'low': getattr(item, 'low', None),
+                    'close': getattr(item, 'close', None),
+                    'volume': getattr(item, 'volume', None),
+                }))
+            except Exception as e:
+                print(f"Warning: Could not convert item at index {idx} to CachedRow: {e}")
+    
+    if len(normalized) < len(raw_result):
+        print(f"Warning: Filtered out {len(raw_result) - len(normalized)} corrupted cache entries in get_chart_data")
+    
+    return normalized
 
 
 def format_tradingview_data(result: list) -> dict:
@@ -217,6 +260,11 @@ def format_tradingview_data(result: list) -> dict:
     volumes = []
     
     for row in result:
+        if isinstance(row, dict):
+            row = CachedRow(row)
+        elif not isinstance(row, CachedRow):
+            continue
+        
         timestamps.append(int(row.timestamp) if row.timestamp else 0)
         opens.append(float(row.open) if row.open is not None else 0.0)
         highs.append(float(row.high) if row.high is not None else 0.0)
@@ -500,6 +548,12 @@ async def subscribe_bars(websocket: WebSocket):
                         
                         if result and len(result) > 0:
                             row = result[0]
+                            if isinstance(row, dict):
+                                row = CachedRow(row)
+                            elif not isinstance(row, CachedRow):
+                                print(f"Unexpected row type from get_chart_data: {type(row)}")
+                                continue
+                            
                             current_timestamp = int(row.timestamp) if row.timestamp else 0
                                                         
                             # Only send if this is a new bar (open_time > last_timestamp)
