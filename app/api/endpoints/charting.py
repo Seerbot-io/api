@@ -1,3 +1,4 @@
+from fastapi.websockets import WebSocketState
 from app.core.config import settings
 from app.core.router_decorated import APIRouter
 from app.core.cache import cache
@@ -158,7 +159,6 @@ def get_chart_data(
         db.close()
 
 
-
 def format_tradingview_data(result: list) -> dict:
     """Format database result to TradingView format.
     
@@ -206,7 +206,7 @@ def format_tradingview_data(result: list) -> dict:
     }
 
 
-@router.get("charting/config", tags=group_tags)
+@router.get("/config", tags=group_tags)
 @cache('in-1h')
 def get_config():
     """TradingView charting library configuration endpoint."""
@@ -221,7 +221,7 @@ def get_config():
     }
 
 
-@router.get("/charting/pairs/{pair}", tags=group_tags)
+@router.get("/pairs/{pair}", tags=group_tags)
 @cache('in-1h')
 def resolve_pair(pair: str):
     """TradingView resolveSymbol endpoint.
@@ -252,7 +252,7 @@ def resolve_pair(pair: str):
     }
 
 
-@router.get("charting/pairs", tags=group_tags)
+@router.get("/pairs", tags=group_tags)
 @cache('in-1h')
 def search_pairs(
     query: Optional[str] = None,
@@ -297,7 +297,7 @@ def search_pairs(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
-@router.get("/charting/history/{pair}", tags=group_tags)
+@router.get("/history/{pair}", tags=group_tags)
 @cache('in-5m')
 def get_bars(
     pair: str,
@@ -322,7 +322,6 @@ def get_bars(
             to_time=to,
             count_back=count_back
         )
-        
         
         return format_tradingview_data(result)
     except ValueError as e:

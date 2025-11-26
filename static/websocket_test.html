@@ -5,32 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebSocket Streaming Test</title>
     <link rel="stylesheet" href="/static/css/style.css">
-    <style>
-        .endpoint-selector {
-            margin-bottom: 20px;
-            padding: 15px;
-            background: #f5f5f5;
-            border-radius: 5px;
-        }
-        .endpoint-option {
-            margin: 8px 0;
-        }
-        .endpoint-option input {
-            margin-right: 8px;
-        }
-        .endpoint-config {
-            display: none;
-        }
-        .endpoint-config.active {
-            display: block;
-        }
-        .form-group small {
-            color: #666;
-            font-size: 12px;
-            display: block;
-            margin-top: 5px;
-        }
-    </style>
 </head>
 <body>
     <div class="container">
@@ -40,18 +14,6 @@
         </div>
         
         <div class="controls">
-            <div class="endpoint-selector">
-                <label style="display:block;font-weight:600;margin-bottom:10px;">Select WebSocket Endpoint</label>
-                <div class="endpoint-option">
-                    <input type="radio" id="endpoint-charting" name="endpoint" value="charting" checked onchange="onEndpointChange()">
-                    <label for="endpoint-charting" style="font-weight:400;">Charting Stream (/charting/streaming)</label>
-                </div>
-                <div class="endpoint-option">
-                    <input type="radio" id="endpoint-toptraders" name="endpoint" value="toptraders" onchange="onEndpointChange()">
-                    <label for="endpoint-toptraders" style="font-weight:400;">Top Traders (/analysis/toptraders/ws)</label>
-                </div>
-            </div>
-
             <div class="form-group">
                 <label>WebSocket URL</label>
                 <input type="text" id="wsUrl" value="" placeholder="Auto-detected from current page">
@@ -62,70 +24,32 @@
                 <button id="disconnectBtn" class="btn-disconnect" onclick="disconnect()" disabled>Disconnect</button>
             </div>
             
-            <div id="config-charting" class="endpoint-config active">
-                <div class="form-group" style="margin-top: 20px;">
-                    <label>Symbol</label>
-                    <input type="text" id="symbol" value="USDM/ADA" placeholder="USDM/ADA">
-                    <small>Subscriber ID auto-generates as BARS_{symbol}_{resolution}</small>
-                </div>
-                
-                <div class="form-group">
-                    <label>Resolution</label>
-                    <select id="resolution">
-                        <option value="5m">5m</option>
-                        <option value="30m">30m</option>
-                        <option value="1h">1h</option>
-                        <option value="4h">4h</option>
-                        <option value="1d">1d</option>
-                    </select>
-                </div>
-                
-                <div class="button-group">
-                    <button id="subscribeBtn" class="btn-subscribe" onclick="subscribe()" disabled>Subscribe</button>
-                    <button id="unsubscribeBtn" class="btn-unsubscribe" onclick="unsubscribe()" disabled>Unsubscribe</button>
-                </div>
-            </div>
-
-            <div id="config-toptraders" class="endpoint-config">
-                <div class="form-group" style="margin-top: 20px;">
-                    <label>Limit</label>
-                    <input type="number" id="limit" value="10" min="1" max="100" placeholder="10">
-                    <small>Number of top traders to stream (1-100)</small>
-                </div>
-
-                <div class="form-group">
-                    <label>Metric</label>
-                    <select id="metric">
-                        <option value="volume" selected>Volume</option>
-                        <option value="trades">Trades</option>
-                    </select>
-                    <small>Ranking metric</small>
-                </div>
-
-                <div class="form-group">
-                    <label>Period</label>
-                    <select id="period">
-                        <option value="24h">24h</option>
-                        <option value="7d">7d</option>
-                        <option value="30d">30d</option>
-                        <option value="all" selected>All</option>
-                    </select>
-                    <small>Time range for ranking</small>
-                </div>
-
-                <div class="form-group">
-                    <label>Pair (optional)</label>
-                    <input type="text" id="pair" value="" placeholder="USDM_ADA or USDM/ADA">
-                    <small>Filter to a specific market</small>
-                </div>
-
-                <small style="color:#1e88e5;font-weight:600;display:block;margin-top:10px;">
-                    ℹ️ Top traders stream pushes a snapshot every ~5 minutes. No subscribe messages needed.
+            <div class="form-group" style="margin-top: 20px;">
+                <label>Symbol</label>
+                <input type="text" id="symbol" value="USDM/ADA" placeholder="USDM/ADA">
+                <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                    Subscriber ID will be auto-generated as: bar_{symbol}_{resolution}
                 </small>
+            </div>
+            
+            <div class="form-group">
+                <label>Resolution</label>
+                <select id="resolution">
+                    <option value="5m">5m</option>
+                    <option value="30m">30m</option>
+                    <option value="1h">1h</option>
+                    <option value="4h">4h</option>
+                    <option value="1d">1d</option>
+                </select>
+            </div>
+            
+            <div class="button-group">
+                <button id="subscribeBtn" class="btn-subscribe" onclick="subscribe()" disabled>Subscribe</button>
+                <button id="unsubscribeBtn" class="btn-unsubscribe" onclick="unsubscribe()" disabled>Unsubscribe</button>
             </div>
         </div>
         
-        <div class="subscriptions" id="subscriptions-section">
+        <div class="subscriptions">
             <h3>Active Subscriptions</h3>
             <div id="subscriptionsList">No active subscriptions</div>
         </div>
@@ -136,7 +60,7 @@
                     <span>System</span>
                     <span class="message-time" id="currentTime"></span>
                 </div>
-                <div class="message-body">Ready to connect. Pick an endpoint and click "Connect" to start.</div>
+                <div class="message-body">Ready to connect. Click "Connect" to start.</div>
             </div>
         </div>
     </div>
@@ -144,4 +68,3 @@
     <script src="/static/js/script.js"></script>
 </body>
 </html>
-

@@ -1,75 +1,19 @@
 let ws = null;
 let subscriptions = new Set();
-let currentEndpoint = 'charting';
 
-// Auto-detect WebSocket URL based on current page location and selected endpoint
+// Auto-detect WebSocket URL based on current page location
 function getWebSocketUrl() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const endpoint = getSelectedEndpoint();
-
-    if (endpoint === 'charting') {
-        return `${protocol}//${host}/charting/streaming`;
-    }
-
-    const limit = document.getElementById('limit')?.value || '10';
-    const metric = document.getElementById('metric')?.value || 'volume';
-    const period = document.getElementById('period')?.value || 'all';
-    const pair = document.getElementById('pair')?.value || '';
-
-    let url = `${protocol}//${host}/analysis/toptraders/ws?limit=${limit}&metric=${metric}&period=${period}`;
-    if (pair) {
-        url += `&pair=${encodeURIComponent(pair)}`;
-    }
-    return url;
+    return `${protocol}//${host}/analysis/charting/ws`;
 }
 
-function getSelectedEndpoint() {
-    const selected = document.querySelector('input[name="endpoint"]:checked');
-    return selected ? selected.value : 'charting';
-}
-
-function onEndpointChange() {
-    currentEndpoint = getSelectedEndpoint();
-
-    const wsUrlInput = document.getElementById('wsUrl');
-    if (wsUrlInput) {
-        wsUrlInput.value = getWebSocketUrl();
-    }
-
-    document.getElementById('config-charting').classList.toggle('active', currentEndpoint === 'charting');
-    document.getElementById('config-toptraders').classList.toggle('active', currentEndpoint === 'toptraders');
-
-    const subsSection = document.getElementById('subscriptions-section');
-    if (subsSection) {
-        subsSection.style.display = currentEndpoint === 'charting' ? 'block' : 'none';
-    }
-
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        disconnect();
-    }
-}
-
-// Set default WebSocket URL and attach listeners
+// Set default WebSocket URL
 (function() {
     const wsUrlInput = document.getElementById('wsUrl');
     if (wsUrlInput && !wsUrlInput.value) {
         wsUrlInput.value = getWebSocketUrl();
     }
-
-    ['limit', 'metric', 'period', 'pair'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.addEventListener('change', () => {
-                if (getSelectedEndpoint() === 'toptraders') {
-                    const urlInput = document.getElementById('wsUrl');
-                    if (urlInput) {
-                        urlInput.value = getWebSocketUrl();
-                    }
-                }
-            });
-        }
-    });
 })();
 
 // Update current time
@@ -124,8 +68,7 @@ function updateSubscriptionsList() {
 
 function connect() {
     const url = document.getElementById('wsUrl').value;
-    const endpoint = getSelectedEndpoint();
-
+    
     if (ws && ws.readyState === WebSocket.OPEN) {
         addMessage('error', 'Error', 'Already connected!');
         return;
@@ -142,51 +85,39 @@ function connect() {
             addMessage('success', 'Connection', 'WebSocket connected successfully!');
             document.getElementById('connectBtn').disabled = true;
             document.getElementById('disconnectBtn').disabled = false;
-            document.getElementById('subscribeBtn').disabled = endpoint !== 'charting';
-            document.getElementById('unsubscribeBtn').disabled = endpoint !== 'charting';
+            document.getElementById('subscribeBtn').disabled = false;
+            document.getElementById('unsubscribeBtn').disabled = false;
         };
         
         ws.onmessage = function(event) {
             try {
                 const data = JSON.parse(event.data);
-
-                if (endpoint === 'charting') {
-                    if (data.status === 'subscribed') {
-                        subscriptions.add(data.subscriber_id);
-                        updateSubscriptionsList();
-                        addMessage('success', 'Subscription', data);
-                    } else if (data.status === 'unsubscribed') {
-                        subscriptions.delete(data.subscriber_id);
-                        updateSubscriptionsList();
-                        addMessage('info', 'Unsubscription', data);
-                    } else if (data.error) {
-                        addMessage('error', 'Error', data);
-                    } else if (data.symbol && data.timestamp) {
-                        addMessage('info', 'Bar Update', {
-                            subscriber_id: data.subscriber_id,
-                            symbol: data.symbol,
-                            timestamp: new Date(data.timestamp * 1000).toLocaleString(),
-                            open: data.open,
-                            high: data.high,
-                            low: data.low,
-                            close: data.close,
-                            volume: data.volume
-                        });
-                    } else {
-                        addMessage('info', 'Message', data);
-                    }
+                
+                // Handle subscription status
+                if (data.status === 'subscribed') {
+                    subscriptions.add(data.subscriber_id);
+                    updateSubscriptionsList();
+                    addMessage('success', 'Subscription', data);
+                } else if (data.status === 'unsubscribed') {
+                    subscriptions.delete(data.subscriber_id);
+                    updateSubscriptionsList();
+                    addMessage('info', 'Unsubscription', data);
+                } else if (data.error) {
+                    addMessage('error', 'Error', data);
+                } else if (data.symbol && data.timestamp) {
+                    // This is a bar update
+                    addMessage('info', 'Bar Update', {
+                        subscriber_id: data.subscriber_id,
+                        symbol: data.symbol,
+                        timestamp: new Date(data.timestamp * 1000).toLocaleString(),
+                        open: data.open,
+                        high: data.high,
+                        low: data.low,
+                        close: data.close,
+                        volume: data.volume
+                    });
                 } else {
-                    if (data.error) {
-                        addMessage('error', 'Error', data);
-                    } else if (data.traders && Array.isArray(data.traders)) {
-                        addMessage('info', 'Top Traders Update', {
-                            period: data.period,
-                            timestamp: new Date(data.timestamp * 1000).toLocaleString(),
-                            traders: data.traders
-                        });
-                    } else {
-                        addMessage('info', 'Message', data);
-                    }
+                    addMessage('info', 'Message', data);
                 }
             } catch (e) {
                 addMessage('error', 'Parse Error', `Failed to parse message: ${event.data}`);
@@ -227,11 +158,6 @@ function subscribe() {
         addMessage('error', 'Error', 'Not connected!');
         return;
     }
-
-    if (getSelectedEndpoint() !== 'charting') {
-        addMessage('error', 'Error', 'Subscribe is only for /charting/streaming');
-        return;
-    }
     
     const symbol = document.getElementById('symbol').value;
     const resolution = document.getElementById('resolution').value;
@@ -254,11 +180,6 @@ function subscribe() {
 function unsubscribe() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         addMessage('error', 'Error', 'Not connected!');
-        return;
-    }
-
-    if (getSelectedEndpoint() !== 'charting') {
-        addMessage('error', 'Error', 'Unsubscribe is only for /charting/streaming');
         return;
     }
     
@@ -286,18 +207,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (e.key === 'Enter') connect();
     });
     
-    const symbolInput = document.getElementById('symbol');
-    if (symbolInput) {
-        symbolInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && getSelectedEndpoint() === 'charting') subscribe();
-        });
-    }
-
-    const resolutionInput = document.getElementById('resolution');
-    if (resolutionInput) {
-        resolutionInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && getSelectedEndpoint() === 'charting') subscribe();
-        });
-    }
+    document.getElementById('symbol').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') subscribe();
+    });
+    
+    document.getElementById('resolution').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') subscribe();
+    });
 });
-
