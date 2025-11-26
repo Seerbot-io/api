@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     SSL_KEY: str | None
     SSL_CERT: str | None
 
+    # SQLAlchemy database URL
+    DATABASE_URL: str
     # MySQL settings
 
     SCHEMA_1: str | None
@@ -27,20 +29,21 @@ class Settings(BaseSettings):
     SCHEMA_4: str | None
     SCHEMA_5: str | None
 
-    # SQLAlchemy database URL
-    DATABASE_URL: str
 
     # Login configuration
     ENCODE_KEY: str | None
     ENCODE_ALGORITHM: str | None = "HS256"
-    ACCESS_TOKEN_EXPIRE_SECONDS: int | None = 3600 # 1 hour
-    NONCE_EXPIRY_SECONDS: int | None = 600 # 10 minutes
+    ACCESS_TOKEN_EXPIRE_SECONDS: int | None = 1800 # 30 minutes
+    NONCE_EXPIRY_SECONDS: int | None = 300 # 5 minutes
 
     # Redis settings
     REDIS_HOST: str | None
     REDIS_PORT: int | None
     REDIS_MAX_CONNECTIONS: int | None
     REDIS_SSL: bool | None
+    # Memory cache settings
+    MEMORY_CACHE_MAX_SIZE: int = 4 * 1024 * 1024 * 1024  # 4GB in bytes
+    REDIS_RECHECK_INTERVAL: int = 30 * 60  # 30 minutes in seconds
     
     # Debug settings
     DEBUG: bool = False

@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from threading import Lock
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, get_args, get_origin
 
 from redis import Connection, ConnectionPool, Redis, SSLConnection
 
@@ -30,16 +30,13 @@ def seconds_until_next_interval(minutes: int, *, now: datetime | None = None) ->
         raise ValueError("minutes must be positive")
 
     start = (now or _utc_now())
-    current = start.replace(second=0)
+    current = start.replace(second=0)    
     next_minute = (current.minute // minutes + 1) * minutes
 
-    if next_minute >= 60:
-        boundary = current.replace(minute=0) + timedelta(hours=1)
-    else:
-        boundary = current.replace(minute=next_minute)
+    boundary = current.replace(minute=next_minute)
 
     delta = int((boundary - start).total_seconds())
-    return max(delta, 1)
+    return max(delta, 5)
 
 
 def seconds_until_hour_minute(minute_mark: int, *, now: datetime | None = None) -> int:
@@ -55,7 +52,7 @@ def seconds_until_hour_minute(minute_mark: int, *, now: datetime | None = None) 
         boundary += timedelta(hours=1)
 
     delta = int((boundary - current).total_seconds())
-    return max(delta, 1)
+    return max(delta, 5)
 
 
 def _static_ttl(seconds: int) -> CacheTTLFactory:
@@ -134,7 +131,15 @@ class HybridCacheManager:
     def __init__(self):
         if hasattr(self, '_initialized') and self._initialized:
             return
-        
+        if settings.REDIS_HOST is None or settings.REDIS_HOST.strip() == "":
+            self.pool = None
+            self.redis_available = False
+            self.memory_cache: Dict[str, Tuple[bytes, Optional[float]]] = {}
+            self._memory_cache_size = 0
+            self._memory_lock = Lock()
+            self._last_redis_check: Optional[float] = None
+            self._initialized = True
+            return
         self.pool = ConnectionPool(
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
@@ -146,24 +151,48 @@ class HybridCacheManager:
         )
         self.redis_available = False
         self.memory_cache: Dict[str, Tuple[bytes, Optional[float]]] = {}
+        self._memory_cache_size = 0
         self._memory_lock = Lock()
+        self._last_redis_check: Optional[float] = None
         self._initialized = True
     
     def redis_connect(self) -> Optional[Redis]:
+        """Connect to Redis, with 30-minute cooldown when unavailable"""
+        # If Redis is not configured, skip
+        if self.pool is None:
+            return None
+        
+        # If Redis was available, try immediately
+        if self.redis_available:
+            try:
+                rc = Redis(connection_pool=self.pool)
+                if rc.ping():
+                    return rc
+                # Connection failed, mark as unavailable
+                self.redis_available = False
+                self._last_redis_check = time.time()
+            except Exception:
+                self.redis_available = False
+                self._last_redis_check = time.time()
+            return None
+        
+        # If Redis is unavailable, only check every 30 minutes
+        now = time.time()
+        if self._last_redis_check is not None:
+            time_since_check = now - self._last_redis_check
+            if time_since_check < settings.REDIS_RECHECK_INTERVAL:
+                return None
+        
+        # Time to recheck Redis connection
+        self._last_redis_check = now
         try:
             rc = Redis(connection_pool=self.pool)
             if rc.ping():
-                if not self.redis_available:
-                    print("Redis cache connection available")
                 self.redis_available = True
                 return rc
-            print("Failed to connect to Redis")
-        except Exception as e:
-            if self.redis_available:
-                print("Lost Redis connection", e)
-            else:
-                print("Failed to connect to Redis", e)
-        self.redis_available = False
+        except Exception:
+            pass
+        
         return None
     
     def get(self, key: str) -> Optional[Any]:
@@ -212,8 +241,7 @@ class HybridCacheManager:
             if ttl_seconds is not None and ttl_seconds > 0:
                 rc.expire(key, ttl_seconds)
             return True
-        except Exception as e:
-            print("Failed to set Redis cache", e)
+        except Exception:
             return False
         finally:
             rc.close()
@@ -227,18 +255,53 @@ class HybridCacheManager:
             if result is not None and result != b'':
                 return result
             return None
-        except Exception as e:
-            print("Failed to read Redis cache", e)
+        except Exception:
             return None
         finally:
             rc.close()
     
     def _set_memory(self, key: str, data: bytes, ttl_seconds: Optional[int]) -> None:
+        """Set memory cache with 4GB size limit using LRU eviction"""
         expires_at = None if ttl_seconds is None else time.time() + ttl_seconds
+        data_size = len(data)
+        
         with self._memory_lock:
+            # Remove existing entry if updating
+            if key in self.memory_cache:
+                old_data, _ = self.memory_cache[key]
+                self._memory_cache_size -= len(old_data)
+            
+            # Check if we need to evict entries to make space
+            while (self._memory_cache_size + data_size > settings.MEMORY_CACHE_MAX_SIZE and 
+                   self.memory_cache):
+                # Evict oldest expired entries first
+                now = time.time()
+                expired_keys = [
+                    k for k, (_, exp) in self.memory_cache.items()
+                    if exp is not None and exp <= now
+                ]
+                
+                if expired_keys:
+                    # Remove expired entries
+                    for k in expired_keys:
+                        old_data, _ = self.memory_cache.pop(k)
+                        self._memory_cache_size -= len(old_data)
+                else:
+                    # No expired entries, remove oldest by expiration time
+                    # (or entry with no expiration if all have expiration)
+                    oldest_key = min(
+                        self.memory_cache.keys(),
+                        key=lambda k: self.memory_cache[k][1] or float('inf')
+                    )
+                    old_data, _ = self.memory_cache.pop(oldest_key)
+                    self._memory_cache_size -= len(old_data)
+            
+            # Add new entry
             self.memory_cache[key] = (data, expires_at)
+            self._memory_cache_size += data_size
     
     def _get_memory(self, key: str) -> Optional[bytes]:
+        """Get from memory cache, removing expired entries"""
         now = time.time()
         with self._memory_lock:
             cached = self.memory_cache.get(key)
@@ -247,6 +310,7 @@ class HybridCacheManager:
             value, expires_at = cached
             if expires_at is not None and expires_at <= now:
                 self.memory_cache.pop(key, None)
+                self._memory_cache_size -= len(value)
                 return None
             return value
 
@@ -280,7 +344,7 @@ def _make_cache_key(func_name: str, args: tuple, kwargs: dict) -> str:
     return f"cache:{hashlib.md5(key_str.encode()).hexdigest()}"
 
 
-def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None):
+def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None, value_type: Any = None):
     """
     Decorator for caching function results with hybrid Redis + memory fallback.
     
@@ -296,6 +360,49 @@ def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None):
     def decorator(func: Callable) -> Callable:
         func_name = key_prefix or f"{func.__module__}.{func.__name__}"
         
+        def _serialize_value(value: Any) -> Any:
+            """Convert value to JSON-serializable data."""
+            if hasattr(value, "model_dump"):
+                return value.model_dump()
+            if isinstance(value, list):
+                return [_serialize_value(item) for item in value]
+            if isinstance(value, tuple):
+                return [_serialize_value(item) for item in value]
+            if isinstance(value, dict):
+                return {
+                    key: _serialize_value(val)
+                    for key, val in value.items()
+                }
+            return value
+
+        def _deserialize_single(target: Any, data: Any) -> Any:
+            if target is None:
+                return data
+            if isinstance(target, type):
+                if hasattr(target, "model_validate"):
+                    return target.model_validate(data)
+                if isinstance(data, dict):
+                    try:
+                        return target(**data)
+                    except TypeError:
+                        pass
+                return target(data)
+            if callable(target):
+                return target(data)
+            return data
+
+        def _deserialize_value(payload: Any) -> Any:
+            if payload is None or value_type is None:
+                return payload
+
+            origin = get_origin(value_type)
+            if origin in (list, tuple):
+                inner_type = get_args(value_type)[0] if get_args(value_type) else None
+                converted = [_deserialize_single(inner_type, item) for item in payload]
+                return converted if origin is list else tuple(converted)
+
+            return _deserialize_single(value_type, payload)
+
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
             # Generate cache key
@@ -304,13 +411,13 @@ def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None):
             # Try to get from cache
             cached = cache_manager.get(cache_key)
             if cached is not None:
-                return cached
+                return _deserialize_value(cached)
             
             # Execute function
             result = await func(*args, **kwargs)
             
             # Store in cache
-            cache_manager.set(cache_key, result, cache_type)
+            cache_manager.set(cache_key, _serialize_value(result), cache_type)
             
             return result
         
@@ -322,13 +429,13 @@ def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None):
             # Try to get from cache
             cached = cache_manager.get(cache_key)
             if cached is not None:
-                return cached
+                return _deserialize_value(cached)
             
             # Execute function
             result = func(*args, **kwargs)
             
             # Store in cache
-            cache_manager.set(cache_key, result, cache_type)
+            cache_manager.set(cache_key, _serialize_value(result), cache_type)
             
             return result
         

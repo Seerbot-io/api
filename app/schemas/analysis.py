@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import BaseModel, field_validator, Field
 from app.schemas.my_base_model import CustormBaseModel
 from typing import Union, List, Optional
 
@@ -121,52 +121,23 @@ class TokenMarketInfo(CustormBaseModel):
     name: str = ''
     symbol: str = ''
     price: float = 0.0
-    change_24h: float = 0.0  # 24h_change
-    low_24h: float = 0.0  # 24h_low
-    high_24h: float = 0.0  # 24h_high
-    volume_24h: float = 0.0  # 24h_volume
+    change_24h: float = 0.0  # change_24h
+    low_24h: float = 0.0  # low_24h
+    high_24h: float = 0.0  # high_24h
+    volume_24h: float = 0.0  # volume_24h
 
     @field_validator("price", "change_24h", "low_24h", "high_24h", "volume_24h")
     def round_value(cls, v: float) -> float:
         return round(v, 6)
-    
-    def dict(self, **kwargs):
-        """Override dict to use correct field names in JSON response"""
-        data = super().dict(**kwargs)
-        # Replace Python field names with JSON field names
-        return {
-            "id": data.get("id", ""),
-            "name": data.get("name", ""),
-            "symbol": data.get("symbol", ""),
-            "price": data.get("price", 0.0),
-            "24h_change": data.get("change_24h", 0.0),
-            "24h_low": data.get("low_24h", 0.0),
-            "24h_high": data.get("high_24h", 0.0),
-            "24h_volume": data.get("volume_24h", 0.0)
-        }
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": "addr1qxy99g3k...tokenaddress",
-                "name": "USDM",
-                "symbol": "USDM",
-                "price": 50000.00,
-                "24h_change": -1.25,
-                "24h_low": 49500.00,
-                "24h_high": 51500.00,
-                "24h_volume": 982345000.00
-            }
-        }
-
-class SwapCreate(CustormBaseModel):
-    transaction_id: str = ''
-    from_token: str = ''
-    to_token: str = ''
-    from_amount: float = 0.0
-    to_amount: float = 0.0
-    price: float = 0.0
-    timestamp: Optional[int] = None  # Optional, defaults to current time
+        
+class SwapCreate(BaseModel):
+    transaction_id: str = Field(..., description="On chain transaction ID")
+    from_token: str = Field(..., description="Source token symbol")
+    to_token: str = Field(..., description="Destination token symbol")
+    from_amount: float = Field(..., description="Amount of source token", gt=0)
+    to_amount: float = Field(..., description="Amount of destination token", gt=0)
+    price: float = Field(..., description="Exchange rate", gt=0)
+    timestamp: Optional[int] = Field(None, description="Transaction timestamp in seconds (optional)")
 
     @field_validator("from_amount", "to_amount", "price")
     def round_value(cls, v: float) -> float:
@@ -195,4 +166,14 @@ class SwapListResponse(CustormBaseModel):
     total: int = 0
     page: int = 1
     limit: int = 20
-    
+
+class Trader(CustormBaseModel):
+    user_id: str = ''
+    total_volume: float = 0.0
+    total_trades: int = 0
+    rank: int = 0
+
+    @field_validator("total_volume")
+    def round_value(cls, v: float) -> float:
+        return round(v, 2)
+        

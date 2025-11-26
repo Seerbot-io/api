@@ -1,8 +1,7 @@
 from app.api.endpoints import (
+    auth,
     health,
-    prices,
-    al_trade,
     analysis,
-    search,
+    charting,
 )
 # list of routers

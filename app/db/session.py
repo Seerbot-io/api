@@ -21,8 +21,11 @@ def get_db() -> Session  |  HTTPException:
     try:
         yield db
     except Exception as e:
-        print(e)
-        raise HTTPException(status_code=500, detail="Query data error")
+        if isinstance(e, HTTPException):
+            raise e
+        else:
+            print(e)
+            raise HTTPException(status_code=500, detail="Query data error")
     finally:
         db.close()
 
