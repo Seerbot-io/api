@@ -218,6 +218,7 @@ def get_tokens(
     - id: Onchain address
     - name: Token name
     - symbol: Token symbol
+    - logo_url: Token logo URL
     """
     # Build query
     query_obj = db.query(Token)
@@ -250,7 +251,8 @@ def get_tokens(
         schemas.Token(
             id=token.id if token.id else '',
             name=token.name if token.name else '',
-            symbol=token.symbol if token.symbol else ''
+            symbol=token.symbol if token.symbol else '',
+            logo_url=token.logo_url if token.logo_url else ''
         )
         for token in tokens
     ]
@@ -264,7 +266,7 @@ def _get_token_market_info_data(symbol: str) -> dict:
     select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
 	,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h
     from (
-        select id, name, symbol
+        select id, name, symbol, logo_url
         from proddb.tokens
         where symbol='{symbol}'
     ) a left join(
@@ -302,6 +304,7 @@ def _get_token_market_info_data(symbol: str) -> dict:
         "id": token.id,
         "name": token.name,
         "symbol": token.symbol,
+        "logo_url": token.logo_url,
         "price": token.price,
         "change_24h": token.change_24h,
         "low_24h": token.low_24h,
@@ -335,7 +338,7 @@ def get_token_market_info(
     token_data = _get_token_market_info_data(symbol)
     if token_data is None or not token_data:
         raise HTTPException(status_code=404, detail="Token not found")
-
+    # print(token_data)
     return schemas.TokenMarketInfo(**token_data)
 
 

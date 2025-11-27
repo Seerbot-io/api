@@ -12,7 +12,7 @@ import os
 
 from app.api.endpoints import (
     analysis,
-    auth,
+    # auth,
     charting,
     health,
 )
@@ -87,7 +87,7 @@ app.include_router(health.router)
 
 g_prefix = "/api"
 app.include_router(analysis.router, prefix="/analysis")
-app.include_router(auth.router, prefix="/auth")
+# app.include_router(auth.router, prefix="/auth")
 app.include_router(charting.router, prefix="/charting")
 
 

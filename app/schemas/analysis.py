@@ -115,11 +115,13 @@ class Token(CustormBaseModel):
     id: str = ''
     name: str = ''
     symbol: str = ''
+    logo_url: str = ''
 
 class TokenMarketInfo(CustormBaseModel):
     id: str = ''
     name: str = ''
     symbol: str = ''
+    logo_url: str = ''
     price: float = 0.0
     change_24h: float = 0.0  # change_24h
     low_24h: float = 0.0  # low_24h

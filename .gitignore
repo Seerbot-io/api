@@ -3,6 +3,7 @@
 .idea
 .conda
 .serena/*
+tasks/
 
 # env
 __pycache__/
