@@ -17,13 +17,13 @@ from app.core.dependencies import get_current_user
 
 router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)
-group_tags=["Api"]
+group_tags=["Analysis"]
 
 # Map timeframes to table keys (same as in analysis.py)
 TIMEFRAME_MAP = {
-    '5m': 'p5m',
+    '5m': 'f5m',
     '30m': 'f30m',
-    '1h': 'p1h',
+    '1h': 'f1h',
     '4h': 'f4h',
     '1d': 'f1d',
 }
@@ -54,7 +54,7 @@ def get_token_price_usd(token: str, db: Session) -> float:
     """
     return 1
 
-
+# [not used]
 @router.get("/indicators", 
             tags=group_tags,
             response_model=schemas.IndicatorsResponse)
@@ -84,21 +84,12 @@ def get_indicators(
     """
     # Convert pair from USDM_ADA to USDMADA
     symbol = pair.strip().replace("_", "/")
-    
-    # Map timeframe to table key
-    timeframe_map = {
-        '5m': 'f5m',
-        '30m': 'f30m',
-        '1h': 'f1h',
-        '4h': 'f4h',
-        '1d': 'f1d',
-    }
-    
+        
     timeframe_lower = timeframe.strip().lower()
-    if timeframe_lower not in timeframe_map:
+    if timeframe_lower not in TIMEFRAME_MAP:
         raise HTTPException(status_code=400, detail=f"Invalid timeframe: {timeframe}. Valid values: 5m, 30m, 1h, 4h, 1d")
     
-    table_key = timeframe_map[timeframe_lower]
+    table_key = TIMEFRAME_MAP[timeframe_lower]
     if table_key not in tables:
         raise HTTPException(status_code=400, detail=f"Table not found for timeframe: {timeframe}")
     
@@ -150,7 +141,7 @@ def get_indicators(
     
     query = f"""
         SELECT 
-            open_time + {timeframe_map[timeframe_lower]} as timestamp,
+            open_time + {TIMEFRAME_MAP[timeframe_lower]} as timestamp,
             open,
             high,
             low,
@@ -218,6 +209,7 @@ def get_tokens(
     - id: Onchain address
     - name: Token name
     - symbol: Token symbol
+    - logo_url: Token logo URL
     """
     # Build query
     query_obj = db.query(Token)
@@ -250,21 +242,22 @@ def get_tokens(
         schemas.Token(
             id=token.id if token.id else '',
             name=token.name if token.name else '',
-            symbol=token.symbol if token.symbol else ''
+            symbol=token.symbol if token.symbol else '',
+            logo_url=token.logo_url if token.logo_url else ''
         )
         for token in tokens
     ]
 
 
 @cache('in-1m')
-def _get_token_market_info_data(symbol: str) -> dict:
+def _get_token_info_data(symbol: str) -> dict:
     time_now = (int(datetime.now().timestamp()) // 300 - 1) *300
     time_24h_ago = time_now - 24 * 60 * 60
     query = f"""  
     select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
 	,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h
     from (
-        select id, name, symbol
+        select id, name, symbol, logo_url
         from proddb.tokens
         where symbol='{symbol}'
     ) a left join(
@@ -276,12 +269,16 @@ def _get_token_market_info_data(symbol: str) -> dict:
     left join(
     	select price, price - price_24h as change_24h
         from (
-            select open_time, close as price, lag(close) over (ORDER by open_time asc) price_24h
+            select open_time, close as price, lead(close) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
             from proddb.coin_prices_5m cph
             where symbol='{symbol}/ADA'
-                and (open_time = {time_24h_ago} or open_time = {time_now})
+                and (
+                    open_time >= {time_24h_ago} - 300  -- range of 5 minutes for missing data
+                    or open_time <= {time_24h_ago} + 300
+                    or open_time = {time_now}
+                )
         ) coin
-        where price_24h is not null
+        where r = 1
     ) c on TRUE
     left join(   
         select min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
@@ -302,6 +299,7 @@ def _get_token_market_info_data(symbol: str) -> dict:
         "id": token.id,
         "name": token.name,
         "symbol": token.symbol,
+        "logo_url": token.logo_url,
         "price": token.price,
         "change_24h": token.change_24h,
         "low_24h": token.low_24h,
@@ -314,7 +312,7 @@ def _get_token_market_info_data(symbol: str) -> dict:
             tags=group_tags,
             response_model=schemas.TokenMarketInfo)
 @cache('in-1m')
-def get_token_market_info(
+def get_token_info(
     symbol: str,
 ) -> schemas.TokenMarketInfo:
     """Get token Market info
@@ -330,26 +328,30 @@ def get_token_market_info(
     - high_24h: Token highest price in 24h
     - volume_24h: Token trade volume in 24h
     """
-    symbol = symbol.strip().upper()
+    symbol = symbol.strip()
     
-    token_data = _get_token_market_info_data(symbol)
+    token_data = _get_token_info_data(symbol)
     if token_data is None or not token_data:
         raise HTTPException(status_code=404, detail="Token not found")
-
+    # print(token_data)
     return schemas.TokenMarketInfo(**token_data)
 
 
-@router.websocket("/tokens/{symbol}/ws")
-async def token_market_info_ws(
+
+# @router.websocket("/tokens/{symbol}/ws")
+async def token_info_ws(
     websocket: WebSocket,
     symbol: str
 ):
-    """WebSocket endpoint streaming token market info snapshots."""
+    """WebSocket endpoint streaming token market info snapshots.
+    
+    DEPRECATED: Use the unified WebSocket endpoint at /ws with channel 'token_info:{symbol}' instead.
+    """
     await websocket.accept()
     try:
         while True:
             try:
-                token_data = _get_token_market_info_data(symbol)
+                token_data = _get_token_info_data(symbol)
                 await websocket.send_json(token_data)
             except HTTPException as exc:
                 await websocket.send_json({"error": exc.detail})
@@ -906,10 +908,36 @@ def generate_subscriber_id(symbol: str, resolution: str) -> str:
     pair = symbol.replace("/", "_")
     return f"BARS_{pair}_{resolution}"
 
+ohlc_schema = {
+    "post": {
+        "summary": "[WebSocket] Subscribe to bars",
+        "tags": group_tags,
+        "description": "WebSocket endpoint streaming bars snapshots.",
+        "responses": {200: {"description": "Subscribe / unsubscribe to bars"}},
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string"},
+                            "symbol": {"type": "string"},
+                            "resolution": {"type": "string"}
+                        },
+                        "required": ["action", "symbol", "resolution"]
+                    }
+                }
+            }
+        }
+    }
+}
 @router.websocket("/charting/ws")
-async def subscribe_bars(websocket: WebSocket):
+async def ohlc(websocket: WebSocket):
     """TradingView subscribeBars/unsubscribeBars WebSocket endpoint.
-        Expected message format:
+    
+    DEPRECATED: Use the unified WebSocket endpoint at /ws with channel 'ohlc:{symbol}_{resolution}' instead.
+    
+    Expected message format:
     {
         "action": "subscribe" | "unsubscribe",
         "symbol": "USDM/ADA",
@@ -1063,4 +1091,130 @@ async def subscribe_bars(websocket: WebSocket):
             await websocket.send_json({"error": str(e)})
         except Exception:
             pass
+
+
+@router.get("/trend",
+            tags=group_tags,
+            response_model=schemas.TrendResponse)
+@cache('at-e5m')
+def get_trend(
+    timeframe: str = '1d',
+    limit: Optional[int] = None,
+    db: Session = Depends(get_db)
+) -> schemas.TrendResponse:
+    """Retrieves trend prediction data for all trading pairs, grouped by uptrend and downtrend.
+    Uses technical analysis to predict market direction in about 5 candles.
+    
+    - timeframe: Time interval for analysis ('5m', '30m', '1h', '4h', '1d', default: '1d')
+    - limit: Maximum number of rows to return (optional)
+    
+    OUTPUT:
+    - uptrend: Array of pairs in uptrend with pair, confidence, price, change_24h, volume_24h
+    - downtrend: Array of pairs in downtrend with pair, confidence, price, change_24h, volume_24h
+    """
+    # Validate timeframe
+    timeframe_lower = timeframe.strip().lower()
+    valid_timeframes = ['5m', '30m', '1h', '4h', '1d']
+    if timeframe_lower not in valid_timeframes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe: {timeframe}. Valid values: {', '.join(valid_timeframes)}"
+        )
+        
+    table_key = TIMEFRAME_MAP[timeframe_lower]
+    if table_key not in tables:
+        raise HTTPException(status_code=400, detail=f"Table not found for timeframe: {timeframe}")
+    
+    f_table = tables[table_key]  # Will be used in SQL query below
+    from_time = int(datetime.now().timestamp()) - 10* TIMEFRAME_DURATION_MAP[timeframe_lower]
+
+    
+    query = f"""
+    select symbol, 
+        cast(sum(rsi14*CAST(r=1 AS int))/10 - 5 as float) rsi, 
+        cast(avg(adx_reversal*trend_reversal*(7-r)) as float) adx, 
+        cast(avg(psar*(6-r)) as float) psar
+    from (
+        select symbol, close, 
+            rsi14,
+            case 
+                when adx = adx_1 and r <> 1 then 1 
+                else 0
+            end adx_reversal,
+            case 
+                when (CAST(open>close AS int) + CAST(high_1>high AS int) + CAST(low_1>low AS int) >= 2) then 1
+                else -1 
+            end trend_reversal,
+            case 
+                when psar_type_1 = 'UP' and psar_type = 'DOWN' then -1
+                when psar_type_1 = 'DOWN' and psar_type = 'UP' then 1
+                else 0
+            end psar
+            , open_time
+            , r
+        from (
+            select symbol, open, close, high, low, rsi14, -- di14_n, di14_p, di14_line_cross  
+                lag(high) over (
+                    PARTITION BY symbol ORDER BY open_time asc) AS high_1,
+                lag(low) over (
+                    PARTITION BY symbol ORDER BY open_time asc) AS low_1,
+                adx,
+                max(adx) over (PARTITION BY symbol ORDER BY open_time asc rows BETWEEN 2 PRECEDING AND 1 FOLLOWING) AS adx_1,
+                psar_type,
+                lag(psar_type) over (PARTITION BY symbol ORDER BY open_time asc) AS psar_type_1,
+                row_number() over (PARTITION BY symbol ORDER BY open_time desc) AS r
+                ,open_time
+            from {f_table} fcsm 
+            where fcsm.open_time > {from_time}
+        )
+        where r <= 5
+        order by open_time asc
+    )
+    group by symbol
+    """
+    result = db.execute(text(query)).fetchall()
+    
+    # Placeholder values
+    uptrend_pairs = {}
+    downtrend_pairs = {}
+    
+    for row in result:
+        score = row.rsi *0.3 + row.adx *0.4 + row.psar *0.3  # range -5 to 5
+        if score > 1:
+            uptrend_pairs[row.symbol] = round(20*score, 2)
+        elif score < -1:
+            downtrend_pairs[row.symbol] = round(-20*score, 2)
+
+    sorted_uptrend_pairs = sorted(uptrend_pairs.items(), key=lambda item: item[1], reverse=True)
+    sorted_downtrend_pairs = sorted(downtrend_pairs.items(), key=lambda item: item[1], reverse=True)
+    if limit is not None and limit > 0:
+        sorted_uptrend_pairs = sorted_uptrend_pairs[:limit]
+        sorted_downtrend_pairs = sorted_downtrend_pairs[:limit]
+    
+    uptrend_list = []
+    downtrend_list = []
+    for pair, confidence in sorted_uptrend_pairs:
+        token = pair.split('/')[0]
+        token_data = _get_token_info_data(token)
+        uptrend_list.append(schemas.TrendPair(
+            pair=pair,
+            confidence=confidence,
+            price=token_data['price'],
+            change_24h=token_data['change_24h'],
+            volume_24h=token_data['volume_24h']
+        ))
+    for pair, confidence in sorted_downtrend_pairs:
+        token = pair.split('/')[0]
+        token_data = _get_token_info_data(token)
+        downtrend_list.append(schemas.TrendPair(
+            pair=pair,
+            confidence=confidence,
+            price=token_data['price'],
+            change_24h=token_data['change_24h'],
+            volume_24h=token_data['volume_24h']
+        ))
+    return schemas.TrendResponse(
+        uptrend=uptrend_list,
+        downtrend=downtrend_list
+    )
 

@@ -14,7 +14,7 @@ class HealthCheck(CustormBaseModel):
 
 @router.get(
     "/health",
-    tags=["healthcheck"],
+    tags=["Health"],
     summary="Perform a Health Check",
     response_description="Return HTTP Status Code 200 (OK)",
     status_code=status.HTTP_200_OK,

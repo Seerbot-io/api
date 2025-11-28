@@ -115,11 +115,13 @@ class Token(CustormBaseModel):
     id: str = ''
     name: str = ''
     symbol: str = ''
+    logo_url: str = ''
 
 class TokenMarketInfo(CustormBaseModel):
     id: str = ''
     name: str = ''
     symbol: str = ''
+    logo_url: str = ''
     price: float = 0.0
     change_24h: float = 0.0  # change_24h
     low_24h: float = 0.0  # low_24h
@@ -176,4 +178,25 @@ class Trader(CustormBaseModel):
     @field_validator("total_volume")
     def round_value(cls, v: float) -> float:
         return round(v, 2)
+
+class TrendPair(CustormBaseModel):
+    """Trend data for a single trading pair"""
+    pair: str = ''
+    confidence: float = 0.0  # 0-100
+    price: float = 0.0
+    change_24h: float = 0.0
+    volume_24h: float = 0.0
+
+    @field_validator("confidence")
+    def round_confidence(cls, v: float) -> float:
+        return round(v, 2)
+
+    @field_validator("price", "change_24h", "volume_24h")
+    def round_value(cls, v: float) -> float:
+        return round(v, 6)
+
+class TrendResponse(CustormBaseModel):
+    """Response containing all pairs grouped by trend"""
+    uptrend: List[TrendPair] = Field(default_factory=list)
+    downtrend: List[TrendPair] = Field(default_factory=list)
         

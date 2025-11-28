@@ -13,7 +13,7 @@ from app.models.pools import Pool
 
 router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)
-group_tags = ["Charting"]
+group_tags = ["Charting (remove in future)"]
 
 # Map timeframes to table keys (same as in analysis.py)
 TIMEFRAME_MAP = {
