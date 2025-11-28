@@ -80,7 +80,11 @@ async def openapi(username: str = Depends(doc_auth)):
             "get": {
                 "summary": "[WebSocket] Unified WebSocket endpoint",
                 "tags": ["WebSocket"],
-                "description": "Unified WebSocket endpoint for subscribing to multiple data channels. Send messages with action (subscribe/unsubscribe) and channel.",
+                "description": """Unified WebSocket endpoint for subscribing to multiple data channels. Send messages with action (subscribe/unsubscribe) and channel.\n
+Supported channels:\n
+- ohlc:{symbol}|{resolution} - e.g., ohlc:USDM_ADA|5m\n
+- token_info:{symbol} - e.g., token_info:USDM
+                """,
                 "responses": {200: {"description": "WebSocket connection"}},
             }
         },
