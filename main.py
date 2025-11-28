@@ -15,6 +15,8 @@ from app.api.endpoints import (
     # auth,
     charting,
     health,
+    web_content,
+    websocket,
 )
 from app.core.config import settings
 
@@ -70,7 +72,22 @@ async def get_redoc_documentation(username: str = Depends(doc_auth)):
 
 @app.get("/openapi.json", include_in_schema=False)
 async def openapi(username: str = Depends(doc_auth)):
-    return get_openapi(title=app.title, version=app.version, routes=app.routes)
+    openapi_schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+
+    # Add WebSocket route to the schema
+    openapi_schema["paths"].update({
+        "/ws": {
+            "get": {
+                "summary": "[WebSocket] Unified WebSocket endpoint",
+                "tags": ["WebSocket"],
+                "description": "Unified WebSocket endpoint for subscribing to multiple data channels. Send messages with action (subscribe/unsubscribe) and channel.",
+                "responses": {200: {"description": "WebSocket connection"}},
+            }
+        },
+        # "/analysis/tokens/{symbol}/ws":  analysis.token_market_info_ws_schema,
+        # "/analysis/charting/ws":  analysis.subscribe_bars_schema,
+    })
+    return openapi_schema
 
 @app.get("/websocket-test", include_in_schema=False)
 async def websocket_test_page():
@@ -79,6 +96,14 @@ async def websocket_test_page():
     if os.path.exists(html_path):
         return FileResponse(html_path, media_type="text/html")
     raise HTTPException(status_code=404, detail="WebSocket test page not found")
+
+@app.get("/websocket-test2", include_in_schema=False)
+async def unified_websocket_test_page():
+    """Serve the unified WebSocket test HTML page"""
+    html_path = os.path.join(os.path.dirname(__file__), "static", "websocket_test2.html")
+    if os.path.exists(html_path):
+        return FileResponse(html_path, media_type="text/html")
+    raise HTTPException(status_code=404, detail="Unified WebSocket test page not found")
 
 # Include your API routers
 # version control rule: V{main}.{minor}.{patch}
@@ -89,6 +114,8 @@ g_prefix = "/api"
 app.include_router(analysis.router, prefix="/analysis")
 # app.include_router(auth.router, prefix="/auth")
 app.include_router(charting.router, prefix="/charting")
+app.include_router(web_content.router, prefix="/content")
+app.include_router(websocket.router)
 
 
 
