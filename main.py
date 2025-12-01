@@ -124,7 +124,7 @@ app.include_router(websocket.router)
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host=settings.HOST,
+        host="127.0.0.1",
         port=settings.PORT,
         ssl_keyfile=settings.SSL_KEY,
         ssl_certfile=settings.SSL_CERT,

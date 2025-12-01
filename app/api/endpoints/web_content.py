@@ -1,3 +1,4 @@
+from app.core.config import settings
 from typing import List
 from fastapi import Depends, HTTPException, status
 from sqlalchemy import text
@@ -81,7 +82,32 @@ def get_partners() -> List[Partner]:  # noqa: F821
     return [
         Partner(
             name="Minswap",
-            logo="https://asset-logos.minswap.org/7507734918533b3b896241b4704f3d4ce805256b01da6fcede43043642616279534e454b",
+            logo=settings.HOST + "/static/images/Minswap.svg",
             url="https://www.minswap.org/"
+        ),
+        Partner(
+            name="Cardano catalyst",
+            logo=settings.HOST + "/static/images/Cardano_catalyst.svg",
+            url="https://milestones.projectcatalyst.io/"
+        ),
+        Partner(
+            name="Cardano Foundation",
+            logo=settings.HOST + "/static/images/Cardano.svg",
+            url="https://cardanofoundation.org/"
+        ),
+        Partner(
+            name="SCI labs",
+            logo=settings.HOST + "/static/images/SCI_labs.png",
+            url="https://scilabs.io"
+        ),
+        Partner(
+            name="Varmeta",
+            logo=settings.HOST + "/static/images/Varmeta.png",
+            url="https://www.var-meta.com/"
+        ),
+        Partner(
+            name="Vtech com",
+            logo=settings.HOST + "/static/images/Vtech_com.png",
+            url=""
         ),
     ]
