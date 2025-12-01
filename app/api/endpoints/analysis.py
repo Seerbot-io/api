@@ -358,29 +358,21 @@ async def token_info_ws(
 
 @router.post("/swaps",
             tags=group_tags,
-            response_model=schemas.SwapResponse)
+            response_model=schemas.MessageResponse)
 def create_swap(
-    tx_id: str,
+    order_tx_id: str,
+    execution_tx_id: str,
     db: Session = Depends(get_db),
     # user_id: str = Depends(get_current_user)
-) -> schemas.SwapResponse:
-    """Creates a new swap transaction record.
+) -> schemas.MessageResponse:
+    """Create a new swap transaction record.
     
-    - transaction_id: On chain transaction ID (required)
-    - from_token: Source token symbol (required)
-    - to_token: Destination token symbol (required)
-    - from_amount: Amount of source token (required)
-    - to_amount: Amount of destination token (required)
-    - price: Exchange rate (required)
-    - timestamp: Transaction timestamp in seconds (optional, defaults to current time)
-    
-    The transaction volume (value) is automatically calculated as: from_amount * price
-    
+    - order_tx_id: On chain order transaction ID (required)
+    - execution_tx_id: On chain execution transaction ID (required)
     OUTPUT:
-    - transaction_id: On chain transaction ID
-    - status: Transaction status ('pending', 'completed', 'failed')
+    - message: oke
     """
- 
+    
     # Check if transaction already exists
     # existing_swap = db.query(Swap).filter(
     #     Swap.transaction_id == swap_data.transaction_id
@@ -431,6 +423,9 @@ def create_swap(
     #     transaction_id=new_swap.transaction_id,
     #     status=new_swap.status
     # )
+    return schemas.MessageResponse(
+        message="oke"
+    )
 
 
 @router.get("/swaps",
@@ -913,29 +908,6 @@ def generate_subscriber_id(symbol: str, resolution: str) -> str:
     pair = symbol.replace("/", "_")
     return f"BARS_{pair}_{resolution}"
 
-ohlc_schema = {
-    "post": {
-        "summary": "[WebSocket] Subscribe to bars",
-        "tags": group_tags,
-        "description": "WebSocket endpoint streaming bars snapshots.",
-        "responses": {200: {"description": "Subscribe / unsubscribe to bars"}},
-        "requestBody": {
-            "content": {
-                "application/json": {
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "action": {"type": "string"},
-                            "symbol": {"type": "string"},
-                            "resolution": {"type": "string"}
-                        },
-                        "required": ["action", "symbol", "resolution"]
-                    }
-                }
-            }
-        }
-    }
-}
 @router.websocket("/charting/ws")
 async def ohlc(websocket: WebSocket):
     """TradingView subscribeBars/unsubscribeBars WebSocket endpoint.

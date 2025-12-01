@@ -151,9 +151,8 @@ class SwapCreate(BaseModel):
     def round_value(cls, v: float) -> float:
         return round(v, 6)
 
-class SwapResponse(CustormBaseModel):
-    transaction_id: str = ''
-    status: str = 'pending'  # 'pending', 'completed', 'failed'
+class MessageResponse(CustormBaseModel):
+    message: str = 'oke'
 
 class SwapTransaction(CustormBaseModel):
     transaction_id: str = ''

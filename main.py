@@ -116,18 +116,9 @@ app.include_router(health.router)
 
 g_prefix = "/api"
 app.include_router(analysis.router, prefix="/analysis")
-# app.include_router(auth.router, prefix="/auth")
 app.include_router(charting.router, prefix="/charting")
 app.include_router(web_content.router, prefix="/content")
 app.include_router(websocket.router)
-
-
-
-# todo: login
-# login page
-# app.include_router(auth.router, prefix="/api/sessions")
-# app.include_router(login_page.router, prefix="/api/sessions")  # exapmle client page for login
-# app.include_router(google.router, prefix="/api/sessions")
 
 
 if __name__ == "__main__":
