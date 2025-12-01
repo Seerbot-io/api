@@ -43,7 +43,6 @@ TIMEFRAME_DURATION_MAP = {
 def get_token_price_usd(token: str, db: Session) -> float:
     """
     Get the USD price of a token.
-    TODO: Implement to fetch latest token price from database or API.
     
     Args:
         token: Token symbol (e.g., 'USDM', 'ADA')
@@ -191,14 +190,14 @@ def get_indicators(
 
 @router.get("/tokens",
             tags=group_tags,
-            response_model=List[schemas.Token])
+            response_model=schemas.TokenList)
 @cache('at-e5m')
 def get_tokens(
     query: Optional[str] = None,
-    limit: Optional[int] = None,
-    offset: Optional[int] = None,
+    page: int = 1,
+    page_size: int = 20,
     db: Session = Depends(get_db)
-) -> List[schemas.Token]:
+) -> schemas.TokenList:
     """Search or list available tokens
     
     - query: query keyword to filter tokens by name or symbol (optional)
@@ -223,30 +222,26 @@ def get_tokens(
                 Token.symbol.ilike(query_term)
             )
         )
-    
-    # Apply offset if provided
-    if offset is not None:
-        offset = max(0, offset)
-        query_obj = query_obj.offset(offset)
-    
-    # Apply limit if provided
-    if limit is not None:
-        limit = max(1, limit)
-        query_obj = query_obj.limit(limit)
-    
     # Execute query
     tokens = query_obj.all()
-    
-    # Convert to response format
-    return [
+    n = len(tokens)
+    if n == 0:
+        return schemas.TokenList(total=0, page=1, tokens=[])
+    offset = (page - 1) * page_size
+    if offset >= n:
+        offset = n
+    if offset + page_size > n:
+        page_size = n - offset
+    token_data = [
         schemas.Token(
-            id=token.id if token.id else '',
-            name=token.name if token.name else '',
-            symbol=token.symbol if token.symbol else '',
-            logo_url=token.logo_url if token.logo_url else ''
+        id=token.id if token.id else '',
+        name=token.name if token.name else '',
+        symbol=token.symbol if token.symbol else '',
+        logo_url=token.logo_url if token.logo_url else ''
         )
-        for token in tokens
-    ]
+    for token in tokens[offset:offset+page_size]]
+    # Convert to response format
+    return schemas.TokenList(total=n, page=page, tokens=token_data)
 
 
 @cache('in-1m')
@@ -333,7 +328,6 @@ def get_token_info(
     token_data = _get_token_info_data(symbol)
     if token_data is None or not token_data:
         raise HTTPException(status_code=404, detail="Token not found")
-    # print(token_data)
     return schemas.TokenMarketInfo(**token_data)
 
 
@@ -386,7 +380,6 @@ def create_swap(
     - transaction_id: On chain transaction ID
     - status: Transaction status ('pending', 'completed', 'failed')
     """
-    # todo: get tx info from onchain
  
     # Check if transaction already exists
     # existing_swap = db.query(Swap).filter(
@@ -522,9 +515,8 @@ def get_swaps(
 
 
 # @cache('in-5m')
-def _fetch_top_traders_data(limit: int, metric: str, period: str, pair: Optional[str]) -> List[dict]:
+def _fetch_top_traders_data(limit: int, offset: int, metric: str, period: str, pair: Optional[str]) -> List[dict]:
     """Core logic for retrieving top trader stats."""
-    limit = max(1, min(100, limit))
 
     metric_lower = metric.strip().lower()
     valid_metrics = ['volume', 'trades']
@@ -563,6 +555,12 @@ def _fetch_top_traders_data(limit: int, metric: str, period: str, pair: Optional
             f"AND to_token in ('{token1}', '{token2}')"
         )
 
+    limit_str = offset_str = ""
+    if limit is not None and limit > 0:
+        limit_str = f" LIMIT {limit}"
+    if offset is not None and offset > 0:
+        offset_str = f" OFFSET {offset}"
+
     where_clause = " AND ".join(where_conditions)
     query = f"""
         SELECT 
@@ -573,7 +571,8 @@ def _fetch_top_traders_data(limit: int, metric: str, period: str, pair: Optional
         WHERE {where_clause}
         GROUP BY user_id
         ORDER BY {metric_lower} DESC
-        LIMIT {limit}
+        {limit_str}
+        {offset_str}
     """
 
     db = SessionLocal()
@@ -596,18 +595,24 @@ def _fetch_top_traders_data(limit: int, metric: str, period: str, pair: Optional
         )
     return traders
 
-@router.get("/toptraders", tags=group_tags, response_model=List[schemas.Trader])
-@cache('in-5m', value_type=List[schemas.Trader])
-def get_top_traders(limit: int = 10, metric: str = 'volume', period: str = 'all', pair: Optional[str] = None) -> List[schemas.Trader]:
-    """Retrieves a list of top traders based on trading volume or number of trades."""
-    raw_traders = _fetch_top_traders_data(limit=limit, metric=metric, period=period, pair=pair)
-    if len(raw_traders) == 0:
-        return []
-    return [
-        schemas.Trader(**trader)
-        for trader in raw_traders
-    ]
 
+@router.get("/toptraders", tags=group_tags, response_model=schemas.TraderList)
+@cache('in-5m')
+def get_top_traders(page: int = 1, page_size: int = 20, metric: str = 'volume', period: str = 'all', pair: Optional[str] = None) -> schemas.TraderList:
+    """Retrieves a list of top traders based on trading volume or number of trades."""
+    raw_traders = _fetch_top_traders_data(limit=None, offset=None, metric=metric, period=period, pair=pair)  
+    n = len(raw_traders)
+    
+    if n == 0:
+        return schemas.TraderList(traders=[], total=0, page=1)
+    offset = (page - 1) * page_size
+    if offset >= n:
+        offset = n
+    if offset + page_size > n:
+        page_size = n - offset
+    traders = [schemas.Trader(**trader) for trader in raw_traders[offset:offset+page_size]]
+    trader_list = schemas.TraderList(total=n, page=page, traders=traders)
+    return trader_list
 
 
 @cache('in-1m', key_prefix='chart_data_impl')

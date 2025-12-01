@@ -117,6 +117,12 @@ class Token(CustormBaseModel):
     symbol: str = ''
     logo_url: str = ''
 
+class TokenList(CustormBaseModel):
+    total: int = 0
+    page: int = 1
+    tokens: List[Token] = []
+
+
 class TokenMarketInfo(CustormBaseModel):
     id: str = ''
     name: str = ''
@@ -178,6 +184,11 @@ class Trader(CustormBaseModel):
     @field_validator("total_volume")
     def round_value(cls, v: float) -> float:
         return round(v, 2)
+
+class TraderList(CustormBaseModel):
+    total: int = 0
+    page: int = 1
+    traders: List[Trader] = []
 
 class TrendPair(CustormBaseModel):
     """Trend data for a single trading pair"""
