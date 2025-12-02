@@ -82,17 +82,17 @@ def get_partners() -> List[Partner]:  # noqa: F821
     return [
         Partner(
             name="Minswap",
-            logo=settings.HOST + "/static/images/Minswap.svg",
+            logo=settings.HOST + "/static/images/Minswap.png",
             url="https://www.minswap.org/"
         ),
         Partner(
             name="Cardano catalyst",
-            logo=settings.HOST + "/static/images/Cardano_catalyst.svg",
+            logo=settings.HOST + "/static/images/Cardano_catalyst.png",
             url="https://milestones.projectcatalyst.io/"
         ),
         Partner(
             name="Cardano Foundation",
-            logo=settings.HOST + "/static/images/Cardano.svg",
+            logo=settings.HOST + "/static/images/Cardano.png",
             url="https://cardanofoundation.org/"
         ),
         Partner(

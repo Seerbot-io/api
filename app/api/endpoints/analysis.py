@@ -256,13 +256,13 @@ def _get_token_info_data(symbol: str) -> dict:
         from (
             select id, name, symbol, logo_url
             from proddb.tokens
-            where symbol='{symbol}'
+            where symbol='ADA'
         ) a left join(
             select price, price - price_24h as change_24h
             from (
                 select open_time, close as price, lead(close) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
                 from proddb.coin_prices_5m cph
-                where symbol='{symbol}/ADA'
+                where symbol='USDM/ADA'
                     and (
                         open_time >= {time_24h_ago} - 300  -- range of 5 minutes for missing data
                         or open_time <= {time_24h_ago} + 300
@@ -274,7 +274,7 @@ def _get_token_info_data(symbol: str) -> dict:
         left join(   
             select min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
             from proddb.coin_prices_1h cph
-            where symbol='{symbol}/ADA'
+            where symbol='USDM/ADA'
                 and open_time > {time_24h_ago}
             ) d on TRUE
         """
