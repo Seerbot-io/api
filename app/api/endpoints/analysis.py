@@ -248,46 +248,78 @@ def get_tokens(
 def _get_token_info_data(symbol: str) -> dict:
     time_now = (int(datetime.now().timestamp()) // 300 - 1) *300
     time_24h_ago = time_now - 24 * 60 * 60
-    query = f"""  
-    select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
-	,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h
-    from (
-        select id, name, symbol, logo_url
-        from proddb.tokens
-        where symbol='{symbol}'
-    ) a left join(
-	    select close as ada_price
-	    from proddb.coin_prices_5m cph
-	    where symbol='USDM/ADA'
-	    	and open_time = {time_now}
-    ) b on true
-    left join(
-    	select price, price - price_24h as change_24h
+    if symbol == 'ADA':
+        symbol = 'USDM'
+        query = f"""  
+        select a.*, c.price, c.change_24h 
+        ,d.low_24h low_24h, d.high_24h high_24h, d.volume_24h volume_24h
         from (
-            select open_time, close as price, lead(close) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
-            from proddb.coin_prices_5m cph
+            select id, name, symbol, logo_url
+            from proddb.tokens
+            where symbol='{symbol}'
+        ) a left join(
+            select price, price - price_24h as change_24h
+            from (
+                select open_time, close as price, lead(close) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
+                from proddb.coin_prices_5m cph
+                where symbol='{symbol}/ADA'
+                    and (
+                        open_time >= {time_24h_ago} - 300  -- range of 5 minutes for missing data
+                        or open_time <= {time_24h_ago} + 300
+                        or open_time = {time_now}
+                    )
+            ) coin
+            where r = 1
+        ) c on TRUE
+        left join(   
+            select min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
+            from proddb.coin_prices_1h cph
             where symbol='{symbol}/ADA'
-                and (
-                    open_time >= {time_24h_ago} - 300  -- range of 5 minutes for missing data
-                    or open_time <= {time_24h_ago} + 300
-                    or open_time = {time_now}
-                )
-        ) coin
-        where r = 1
-    ) c on TRUE
-    left join(   
-        select min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
-        from proddb.coin_prices_1h cph
-        where symbol='{symbol}/ADA'
-		   	and open_time > {time_24h_ago}
-        ) d on TRUE
-    """
+                and open_time > {time_24h_ago}
+            ) d on TRUE
+        """
+    else:
+        query = f"""  
+        select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
+        ,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h
+        from (
+            select id, name, symbol, logo_url
+            from proddb.tokens
+            where symbol='{symbol}'
+        ) a left join(
+            select close as ada_price
+            from proddb.coin_prices_5m cph
+            where symbol='USDM/ADA'
+                and open_time = {time_now}
+        ) b on true
+        left join(
+            select price, price - price_24h as change_24h
+            from (
+                select open_time, close as price, lead(close) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
+                from proddb.coin_prices_5m cph
+                where symbol='{symbol}/ADA'
+                    and (
+                        open_time >= {time_24h_ago} - 300  -- range of 5 minutes for missing data
+                        or open_time <= {time_24h_ago} + 300
+                        or open_time = {time_now}
+                    )
+            ) coin
+            where r = 1
+        ) c on TRUE
+        left join(   
+            select min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
+            from proddb.coin_prices_1h cph
+            where symbol='{symbol}/ADA'
+                and open_time > {time_24h_ago}
+            ) d on TRUE
+        """
     db = SessionLocal()
     try:
         token = db.execute(text(query)).fetchone()
     finally:
         db.close()
-
+    print(query)
+    print(token)
     if token is None or not token:
         raise HTTPException(status_code=404, detail="Token not found")
     return {    

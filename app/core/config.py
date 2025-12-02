@@ -50,7 +50,10 @@ class Settings(BaseSettings):
 
     # Chat GPT settings
     GPT_KEY: str | None
-     
+
+
+   # BLOCKFROST
+    BLOCKFROST_API_KEY: str | None
     class Config:
         env_file = ".env"
 
