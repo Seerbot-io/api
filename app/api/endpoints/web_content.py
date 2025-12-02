@@ -1,3 +1,4 @@
+from app.core.config import settings
 from typing import List
 from fastapi import Depends, HTTPException, status
 from sqlalchemy import text

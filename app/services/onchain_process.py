@@ -1,0 +1,86 @@
+from pycardano import BlockFrostChainContext
+from app.core.config import settings
+from blockfrost.utils import Namespace
+
+context = BlockFrostChainContext(
+    project_id=settings.BLOCKFROST_API_KEY,
+    base_url="https://cardano-mainnet.blockfrost.io/api/",
+)
+
+MINSWAP_V2_POOL_CONTRACT = "addr1z84q0denmyep98ph3tmzwsmw0j7zau9ljmsqx6a4rvaau66j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq777e2a"
+
+def sum_utxos_amount(utxos: list[Namespace], only:list[str]=None) -> dict:
+    total = {}
+    try:
+        for u in utxos:
+            if only is None or u.address in only:
+                d = total.get(u.address, {})
+                for t in u.amount:
+                    d[t.unit] = float(d.get(t.unit, 0)) + float(t.quantity)
+                total[u.address] = d
+    except Exception as e:
+        raise ValueError(f"Failed to sum UTXOs: {str(e)}")
+    return total
+
+def get_change_amount_utxo(utxo_inputs: list[Namespace], utxo_outputs: list[Namespace], only:list[str]=None) -> dict:
+    total_in = sum_utxos_amount(utxo_inputs, only)
+    total_out = sum_utxos_amount(utxo_outputs, only)
+    # change = {}
+    for addr, amount in total_in.items():
+        addr_out = total_out.get(addr, {})
+        for t, v in amount.items():
+            amount_change = addr_out.get(t, 0) - v
+            if amount_change == 0:
+                addr_out.pop(t)
+            else:
+                addr_out[t] = amount_change 
+        if len(addr_out.keys()) == 0:
+            total_out.pop(addr)
+    change = total_out
+    return change
+
+def get_change_amount(tx_list: list[str], only:list[str]=None) -> dict:     
+    utxo_inputs = []
+    utxo_outputs = []
+    for tx_hash in tx_list:
+        utxo = context.api.transaction_utxos(tx_hash)
+        utxo_inputs += utxo.inputs
+        utxo_outputs += utxo.outputs    
+    return get_change_amount_utxo(utxo_inputs, utxo_outputs, only)
+
+def extract_swap_info(market_order_tx: str, order_executed_tx: str) -> dict:
+    try:
+        timestamp = context.api.transaction(order_executed_tx).block_time
+        mo_utxos = context.api.transaction_utxos(market_order_tx)
+        oe_utxos = context.api.transaction_utxos(order_executed_tx)    
+    except Exception as e:
+        raise ValueError(f"Failed to get UTXOs: {str(e)}")
+    user = mo_utxos.inputs[0].address
+    user_change = get_change_amount_utxo(mo_utxos.inputs, mo_utxos.outputs+oe_utxos.outputs, [user])
+    fee = - user_change.get(user, {}).get("lovelace", 0)
+
+    exchange_data = get_change_amount_utxo(oe_utxos.inputs, oe_utxos.outputs, [MINSWAP_V2_POOL_CONTRACT])
+    exchange_data = exchange_data.get(MINSWAP_V2_POOL_CONTRACT, {})
+    if len(exchange_data.keys()) == 0:
+        raise ValueError("No output")
+    token_in = token_out = ''
+    amount_in = amount_out = 0
+    for t, v in exchange_data.items():
+        if t == "lovelace":
+            fee = fee - v
+        if v < 0:
+            token_out = t
+            amount_out = -v
+        else:
+            token_in = t
+            amount_in = v
+
+    return {
+        "user": user,
+        "token_in": token_in,
+        "amount_in": amount_in,
+        "token_out": token_out,
+        "amount_out": amount_out,
+        "fee": fee,
+        "timestamp": int(timestamp)
+    }
