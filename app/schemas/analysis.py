@@ -138,18 +138,15 @@ class TokenMarketInfo(CustormBaseModel):
     def round_value(cls, v: float) -> float:
         return round(v, 6)
         
-class SwapCreate(BaseModel):
-    transaction_id: str = Field(..., description="On chain transaction ID")
-    from_token: str = Field(..., description="Source token symbol")
-    to_token: str = Field(..., description="Destination token symbol")
-    from_amount: float = Field(..., description="Amount of source token", gt=0)
-    to_amount: float = Field(..., description="Amount of destination token", gt=0)
-    price: float = Field(..., description="Exchange rate", gt=0)
-    timestamp: Optional[int] = Field(None, description="Transaction timestamp in seconds (optional)")
+class SwapCreate(CustormBaseModel):
+    order_tx_id: str = ''
+    execution_tx_id: str = ''
 
-    @field_validator("from_amount", "to_amount", "price")
-    def round_value(cls, v: float) -> float:
-        return round(v, 6)
+    @field_validator("order_tx_id", "execution_tx_id")
+    def validate_tx_id(cls, v: str) -> str:
+        if len(v) != 64:
+            raise ValueError("Transaction ID must be 64 characters long")
+        return v
 
 class MessageResponse(CustormBaseModel):
     message: str = 'oke'

@@ -6,7 +6,7 @@ class Swap(Base):
     """Model for swaps table in proddb schema
     Example:
     {
-        "transaction_id": "998f435b05066bb1944804587dff6a64f4acdf0f0f793cd07a26a551a2b060eb",
+        "transaction_id": "4c6ff99c8328...c8d053659",
         "user_id": "addr1qxy99g3k...useraddress",
         "from_token": "USDM",
         "to_token": "ADA",
@@ -14,6 +14,10 @@ class Swap(Base):
         "to_amount": 5000.00,
         "price": 50000.00,
         "timestamp": 1697123456,
+        "extend_data": {
+            "order_tx_id": "ab79c2bdc3890c1...767a43a1a68f3",
+            "execution_tx_id": "4c6ff99c83285...22c8d053659"
+        },
         "status": "completed",
     }
     """
@@ -29,5 +33,7 @@ class Swap(Base):
     price = Column(Float, nullable=False)
     value = Column(Float, nullable=False)
     timestamp = Column(BigInteger, nullable=False)
+    fee = Column(Float, nullable=False)
+    extend_data = Column(String(255), nullable=False)
     status = Column(String(50), default='pending', nullable=False)  # 'pending', 'completed', 'failed'
 

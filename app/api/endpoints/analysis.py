@@ -5,7 +5,7 @@ from app.core.config import settings
 import app.schemas.analysis as schemas
 from app.core.router_decorated import APIRouter
 from app.core.cache import cache
-from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from sqlalchemy import text, or_
 from typing import List, Optional
@@ -14,6 +14,8 @@ from app.models.tokens import Token
 from app.models.pools import Pool
 from app.models.swaps import Swap
 from app.core.dependencies import get_current_user
+from app.services.onchain_process import extract_swap_info
+from sqlalchemy.exc import IntegrityError
 
 router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)
@@ -281,7 +283,6 @@ def _get_token_info_data(symbol: str) -> dict:
 		   	and open_time > {time_24h_ago}
         ) d on TRUE
     """
-    print(query)
     db = SessionLocal()
     try:
         token = db.execute(text(query)).fetchone()
@@ -324,12 +325,10 @@ def get_token_info(
     - volume_24h: Token trade volume in 24h
     """
     symbol = symbol.strip()
-    print(symbol)
     token_data = _get_token_info_data(symbol)
     if token_data is None or not token_data:
         raise HTTPException(status_code=404, detail="Token not found")
     return schemas.TokenMarketInfo(**token_data)
-
 
 
 # @router.websocket("/tokens/{symbol}/ws")
@@ -360,69 +359,71 @@ async def token_info_ws(
             tags=group_tags,
             response_model=schemas.MessageResponse)
 def create_swap(
-    order_tx_id: str,
-    execution_tx_id: str,
+    form: schemas.SwapCreate,
     db: Session = Depends(get_db),
     # user_id: str = Depends(get_current_user)
 ) -> schemas.MessageResponse:
-    """Create a new swap transaction record.
-    
-    - order_tx_id: On chain order transaction ID (required)
-    - execution_tx_id: On chain execution transaction ID (required)
+    """Create a new swap transaction record.    
+    - headers: Request headers containing:
+        - Content-Type: application/json
+    - body: Request body containing:
+        - order_tx_id: On chain order transaction ID (required)
+        - execution_tx_id: On chain execution transaction ID (required)
+
     OUTPUT:
     - message: oke
     """
+    try:
+        swap_info = extract_swap_info(form.order_tx_id, form.execution_tx_id)
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=400, detail="failed to extract swap info")
     
-    # Check if transaction already exists
-    # existing_swap = db.query(Swap).filter(
-    #     Swap.transaction_id == swap_data.transaction_id
-    # ).first()
-    
-    # if existing_swap:
-    #     raise HTTPException(
-    #         status_code=400,
-    #         detail=f"Transaction with ID '{swap_data.transaction_id}' already exists"
-    #     )
-    
-    # # Use current timestamp if not provided
-    # timestamp = swap_data.timestamp if swap_data.timestamp else int(datetime.now().timestamp())
-    
-    # # Calculate transaction volume (value) in USD
-    # # Get USD price of the from_token
-    # token_price_usd = get_token_price_usd(swap_data.from_token, db)
-    # # Calculate value: from_amount * token_price_usd
-    # value = swap_data.from_amount * token_price_usd
-    
-    # # Create new swap record
-    # new_swap = Swap(
-    #     transaction_id=swap_data.transaction_id,
-    #     user_id=user_id,
-    #     from_token=swap_data.from_token,
-    #     to_token=swap_data.to_token,
-    #     from_amount=swap_data.from_amount,
-    #     to_amount=swap_data.to_amount,
-    #     price=swap_data.price,
-    #     value=value,
-    #     timestamp=timestamp,
-    #     status='completed',  # Default to completed as per example
-    # )
-    
-    # try:
-    #     db.add(new_swap)
-    #     db.commit()
-    #     db.refresh(new_swap)
-    # except Exception as e:
-    #     db.rollback()
-    #     print(f"Error creating swap: {e}")
-    #     raise HTTPException(
-    #         status_code=500,
-    #         detail=f"Failed to create swap transaction: {str(e)}"
-    #     )
-    
-    # return schemas.SwapResponse(
-    #     transaction_id=new_swap.transaction_id,
-    #     status=new_swap.status
-    # )
+    tokens = db.query(Token.id, Token.symbol, Token.decimals).filter(Token.id.in_([swap_info["token_in"], swap_info["token_out"]])).all()
+
+    for row in tokens:
+        if row.id == swap_info["token_in"]:
+            token_in = row.symbol
+            amount_in = swap_info["amount_in"] / (10 ** row.decimals)
+        elif row.id == swap_info["token_out"]:
+            token_out = row.symbol
+            amount_out = swap_info["amount_out"] / (10 ** row.decimals)
+        else:
+            raise HTTPException(status_code=400, detail="token not found")
+
+    price = amount_out / amount_in
+
+    token_in_info = _get_token_info_data(token_in)
+    value = amount_in * token_in_info["price"]
+
+    fee = swap_info["fee"] / (10 ** 6)  # convert lovelace to ada
+
+    extend_data = json.dumps({
+        "order_tx_id": form.order_tx_id,
+        "execution_tx_id": form.execution_tx_id
+    })
+    try:
+        db.add(Swap(
+            transaction_id=form.execution_tx_id,
+            user_id=swap_info["user"],
+            from_token=token_in,
+            from_amount=amount_in,
+            to_token=token_out,
+            to_amount=amount_out,
+            price=price,
+            value=value,
+            timestamp=swap_info["timestamp"],
+            fee=fee,
+            extend_data=extend_data,
+            status="completed"
+        ))
+        db.commit()
+    except Exception as e:
+        print(e)
+        if isinstance(e, IntegrityError):
+            raise HTTPException(status_code=400, detail="transaction already exists")
+        raise HTTPException(status_code=400, detail="failed to add swap to database")
+
     return schemas.MessageResponse(
         message="oke"
     )

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String
+from sqlalchemy import Column, String, Integer
 from app.db.base import Base
 
 
@@ -23,4 +23,5 @@ class Token(Base):
     policy_id = Column(String(255))
     asset_name = Column(String(255))
     logo_url = Column(String(255))
+    decimals = Column(Integer, default=18)
 
