@@ -268,8 +268,7 @@ def _get_token_info_data(symbol: str) -> dict:
             from proddb.coin_prices_5m cph
             where symbol='{symbol}/ADA'
                 and (
-                    open_time >= {time_24h_ago} - 300  -- range of 5 minutes for missing data
-                    or open_time <= {time_24h_ago} + 300
+                    (open_time >= {time_24h_ago} - 300 and open_time <= {time_24h_ago} + 300) -- range of 5 minutes for missing data
                     or open_time = {time_now}
                 )
         ) coin
@@ -282,6 +281,7 @@ def _get_token_info_data(symbol: str) -> dict:
 		   	and open_time > {time_24h_ago}
         ) d on TRUE
     """
+    print(query)
     db = SessionLocal()
     try:
         token = db.execute(text(query)).fetchone()
@@ -324,7 +324,7 @@ def get_token_info(
     - volume_24h: Token trade volume in 24h
     """
     symbol = symbol.strip()
-    
+    print(symbol)
     token_data = _get_token_info_data(symbol)
     if token_data is None or not token_data:
         raise HTTPException(status_code=404, detail="Token not found")

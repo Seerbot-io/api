@@ -20,7 +20,7 @@ stake1u8ymc22nskt7a96y6a6nay6my7963d00djet7v3h293grgggafcqt
 v
 
 
------ 7.88 ADA -> 2.903572 USDM
+----- 5 ADA -> 2.903572 USDM
 aca8e877b2c806057ceb74110255f5ba6fa9443cc9d26aba9ba2eb22af16c7b8
 bbeae27f4df816a3f2ffd57e4a0e0ae69e42f424e927a712adf847a84c3a1d3e
 
