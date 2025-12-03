@@ -319,8 +319,6 @@ def _get_token_info_data(symbol: str) -> dict:
         token = db.execute(text(query)).fetchone()
     finally:
         db.close()
-    print(query)
-    print(token)
     if token is None or not token:
         raise HTTPException(status_code=404, detail="Token not found")
     return {    
