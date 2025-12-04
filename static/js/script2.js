@@ -38,12 +38,21 @@ function addMessage(type, title, body) {
     messageDiv.className = `message ${type}`;
     
     const time = new Date().toLocaleTimeString();
+    
+    // Special formatting for token_info messages
+    let bodyContent = '';
+    if (type === 'info' && title === 'Token Info Update' && body.logo_url !== undefined) {
+        bodyContent = formatTokenInfoMessage(body);
+    } else {
+        bodyContent = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
+    }
+    
     messageDiv.innerHTML = `
         <div class="message-header">
             <span>${title}</span>
             <span class="message-time">${time}</span>
         </div>
-        <div class="message-body">${typeof body === 'string' ? body : JSON.stringify(body, null, 2)}</div>
+        <div class="message-body">${bodyContent}</div>
     `;
     
     messagesDiv.insertBefore(messageDiv, messagesDiv.firstChild);
@@ -52,6 +61,84 @@ function addMessage(type, title, body) {
     while (messagesDiv.children.length > 50) {
         messagesDiv.removeChild(messagesDiv.lastChild);
     }
+}
+
+function formatTokenInfoMessage(data) {
+    const logoHtml = data.logo_url ? 
+        `<div class="token-logo-container">
+            <img src="${data.logo_url}" alt="${data.symbol}" class="token-logo" onerror="this.style.display='none'">
+        </div>` : '';
+    
+    const formatNumber = (num) => {
+        if (num === null || num === undefined) return 'N/A';
+        if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+        if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+        if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+        return num.toFixed(6);
+    };
+    
+    const formatPrice = (price) => {
+        if (price === null || price === undefined) return 'N/A';
+        return price.toFixed(6);
+    };
+    
+    const formatPercentage = (pct) => {
+        if (pct === null || pct === undefined) return 'N/A';
+        const sign = pct >= 0 ? '+' : '';
+        return `${sign}${pct.toFixed(2)}%`;
+    };
+    
+    const formatChange = (change) => {
+        if (change === null || change === undefined) return 'N/A';
+        const sign = change >= 0 ? '+' : '';
+        return `${sign}$${change.toFixed(6)}`;
+    };
+    
+    const changeColor = data.change_24h >= 0 ? '#4caf50' : '#f44336';
+    
+    return `
+${logoHtml}
+<div class="token-info-grid">
+    <div class="token-info-item">
+        <span class="token-info-label">Symbol:</span>
+        <span class="token-info-value">${data.symbol || 'N/A'}</span>
+    </div>
+    <div class="token-info-item">
+        <span class="token-info-label">Name:</span>
+        <span class="token-info-value">${data.name || 'N/A'}</span>
+    </div>
+    <div class="token-info-item">
+        <span class="token-info-label">Price:</span>
+        <span class="token-info-value">$${formatPrice(data.price)}</span>
+    </div>
+    <div class="token-info-item">
+        <span class="token-info-label">24h Change:</span>
+        <span class="token-info-value" style="color: ${changeColor}">${formatChange(data.change_24h)}</span>
+    </div>
+    <div class="token-info-item">
+        <span class="token-info-label">Market Cap:</span>
+        <span class="token-info-value">$${formatNumber(data.market_cap)}</span>
+    </div>
+    <div class="token-info-item">
+        <span class="token-info-label">24h %:</span>
+        <span class="token-info-value" style="color: ${changeColor}">${formatPercentage(data.price_change_percentage_24h)}</span>
+    </div>
+    <div class="token-info-item">
+        <span class="token-info-label">7d %:</span>
+        <span class="token-info-value" style="color: ${data.price_change_percentage_7d >= 0 ? '#4caf50' : '#f44336'}">${formatPercentage(data.price_change_percentage_7d)}</span>
+    </div>
+    <div class="token-info-item">
+        <span class="token-info-label">30d %:</span>
+        <span class="token-info-value" style="color: ${data.price_change_percentage_30d >= 0 ? '#4caf50' : '#f44336'}">${formatPercentage(data.price_change_percentage_30d)}</span>
+    </div>
+</div>
+<div class="token-info-raw">
+    <details>
+        <summary>Raw JSON</summary>
+        <pre>${JSON.stringify(data, null, 2)}</pre>
+    </details>
+</div>
+    `.trim();
 }
 
 function updateSubscriptionsList() {
@@ -169,9 +256,18 @@ function connect() {
                             volume: barData.volume
                         });
                     } else if (data.type === 'token_info') {
-                        addMessage('info', 'token_info', {
+                        const tokenData = data.data;
+                        addMessage('info', 'Token Info Update', {
                             channel: data.channel,
-                            data: data.data
+                            symbol: tokenData.symbol,
+                            name: tokenData.name,
+                            logo_url: tokenData.logo_url,
+                            price: tokenData.price,
+                            change_24h: tokenData.change_24h,
+                            market_cap: tokenData.market_cap,
+                            price_change_percentage_24h: tokenData.price_change_percentage_24h,
+                            price_change_percentage_7d: tokenData.price_change_percentage_7d,
+                            price_change_percentage_30d: tokenData.price_change_percentage_30d
                         });
                     } else {
                         addMessage('info', 'Update', data);

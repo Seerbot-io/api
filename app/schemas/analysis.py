@@ -141,9 +141,11 @@ class TokenMarketInfo(CustormBaseModel):
         
 class SwapCreate(CustormBaseModel):
     order_tx_id: str = ''
-    execution_tx_id: str = ''
+    execution_tx_id: Optional[str] = None
+    from_token: Optional[str] = None
+    to_token: Optional[str] = None
 
-    @field_validator("order_tx_id", "execution_tx_id")
+    @field_validator("order_tx_id")
     def validate_tx_id(cls, v: str) -> str:
         if len(v) != 64:
             raise ValueError("Transaction ID must be 64 characters long")

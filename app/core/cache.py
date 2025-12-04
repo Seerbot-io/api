@@ -32,7 +32,9 @@ def seconds_until_next_interval(minutes: int, *, now: datetime | None = None) ->
     start = (now or _utc_now())
     current = start.replace(second=0)    
     next_minute = (current.minute // minutes + 1) * minutes
-
+    if next_minute >= 60:
+        next_minute -= 60
+        current += timedelta(hours=1)
     boundary = current.replace(minute=next_minute)
 
     delta = int((boundary - start).total_seconds())

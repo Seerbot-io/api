@@ -1,4 +1,5 @@
 from pycardano import BlockFrostChainContext
+import requests
 from app.core.config import settings
 from blockfrost.utils import Namespace
 
@@ -40,6 +41,7 @@ def get_change_amount_utxo(utxo_inputs: list[Namespace], utxo_outputs: list[Name
     return change
 
 def get_change_amount(tx_list: list[str], only:list[str]=None) -> dict:     
+    global context
     utxo_inputs = []
     utxo_outputs = []
     for tx_hash in tx_list:
@@ -48,14 +50,43 @@ def get_change_amount(tx_list: list[str], only:list[str]=None) -> dict:
         utxo_outputs += utxo.outputs    
     return get_change_amount_utxo(utxo_inputs, utxo_outputs, only)
 
-def extract_swap_info(market_order_tx: str, order_executed_tx: str) -> dict:
+def get_executed_tx(user: str, market_order_tx: str, token_in: str, token_out: str) -> str:
+    """"""
+    url = "https://monorepo-mainnet-prod.minswap.org/aggregator/trading-histories"
+    body = {
+        "owner_address": user,
+        "token_b": token_out,
+        "token_a": token_in
+    }
+    response = requests.post(url, json=body)
+    if response.status_code != 200:
+        raise Exception(f"Failed to get executed tx: {response.status_code} {response.text}")
+    data = response.json()
+
+    for order in data.get("orders", []):
+        if order.get("created_tx_id", "") == market_order_tx:
+            executed_tx_id = order.get("updated_tx_id", None)
+            if executed_tx_id is not None:
+                return executed_tx_id
+            else:
+                raise Exception(f"Order not executed: {market_order_tx}")
+    raise Exception(f"Market order tx not found: {market_order_tx}")
+
+
+def extract_swap_info(market_order_tx: str, order_executed_tx: str=None, token_in: str=None, token_out: str=None) -> dict:
+    global context
     try:
-        timestamp = context.api.transaction(order_executed_tx).block_time
         mo_utxos = context.api.transaction_utxos(market_order_tx)
+        user = mo_utxos.inputs[0].address
+        # print(user, market_order_tx, order_executed_tx, token_in, token_out)
+        if order_executed_tx is None or order_executed_tx == "":
+           order_executed_tx = get_executed_tx(user, market_order_tx, token_in, token_out)
+        # print(order_executed_tx)
+        timestamp = context.api.transaction(order_executed_tx).block_time
         oe_utxos = context.api.transaction_utxos(order_executed_tx)    
     except Exception as e:
+        print("[Error: extract_swap_info]", e)
         raise ValueError(f"Failed to get UTXOs: {str(e)}")
-    user = mo_utxos.inputs[0].address
     user_change = get_change_amount_utxo(mo_utxos.inputs, mo_utxos.outputs+oe_utxos.outputs, [user])
     fee = - user_change.get(user, {}).get("lovelace", 0)
 

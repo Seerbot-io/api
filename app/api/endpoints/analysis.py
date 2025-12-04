@@ -42,24 +42,23 @@ TIMEFRAME_DURATION_MAP = {
     '1d': 86400,
 }
 
-def get_token_price_usd(token: str, db: Session) -> float:
-    """
-    Get the USD price of a token.
-    
-    Args:
-        token: Token symbol (e.g., 'USDM', 'ADA')
-        db: Database session
-    
-    Returns:
-        USD price of the token (default: 1 if not implemented)
-    """
-    return 1
+TOKEN_LIST = {}
+
+def _get_token_id(token: str) -> str:
+    global TOKEN_LIST
+    if token not in TOKEN_LIST or TOKEN_LIST is None or len(TOKEN_LIST.items()) == 0:
+        db = SessionLocal()
+        tokens = db.query(Token.id, Token.symbol).all()
+        for token in tokens:
+            TOKEN_LIST[token.symbol] = token.id
+     
+    return TOKEN_LIST.get(token, None)
 
 # [not used]
 @router.get("/indicators", 
             tags=group_tags,
             response_model=schemas.IndicatorsResponse)
-@cache('at-e5m')
+@cache('in-1m')
 def get_indicators(
     pair: str,
     timeframe: str,
@@ -193,7 +192,7 @@ def get_indicators(
 @router.get("/tokens",
             tags=group_tags,
             response_model=schemas.TokenList)
-@cache('at-e5m')
+@cache('in-1m')
 def get_tokens(
     query: Optional[str] = None,
     page: int = 1,
@@ -234,6 +233,8 @@ def get_tokens(
         offset = n
     if offset + page_size > n:
         page_size = n - offset
+    # for t in tokens:
+        # print(t.id, t.name, t.symbol, t.logo_url)
     token_data = [
         schemas.Token(
         id=token.id if token.id else '',
@@ -362,30 +363,6 @@ def get_token_info(
     return schemas.TokenMarketInfo(**token_data)
 
 
-@router.websocket("/tokens/{symbol}/ws")
-async def token_info_ws(
-    websocket: WebSocket,
-    symbol: str
-):
-    """WebSocket endpoint streaming token market info snapshots.
-    
-    DEPRECATED: Use the unified WebSocket endpoint at /ws with channel 'token_info:{symbol}' instead.
-    """
-    await websocket.accept()
-    try:
-        while True:
-            try:
-                token_data = _get_token_info_data(symbol)
-                await websocket.send_json(token_data)
-            except HTTPException as exc:
-                await websocket.send_json({"error": exc.detail})
-                await websocket.close(code=1006)
-                return
-            await asyncio.sleep(10)
-    except WebSocketDisconnect:
-        pass
-
-
 @router.post("/swaps",
             tags=group_tags,
             response_model=schemas.MessageResponse)
@@ -399,13 +376,28 @@ def create_swap(
         - Content-Type: application/json
     - body: Request body containing:
         - order_tx_id: On chain order transaction ID (required)
-        - execution_tx_id: On chain execution transaction ID (required)
-
+        - execution_tx_id: On chain execution transaction ID (optional)
+        - from_token: From token symbol (e.g., 'USDM')
+        - to_token: To token symbol (e.g., 'ADA')
     OUTPUT:
     - message: oke
+
+    **Note:**
+    *must provide execution_tx or from_token and to_token to extract swap info*
+
     """
+    print(form)
     try:
-        swap_info = extract_swap_info(form.order_tx_id, form.execution_tx_id)
+        if form.execution_tx_id is None and form.from_token is not None and form.to_token is not None:
+            token_in = _get_token_id(form.from_token)
+            token_out = _get_token_id(form.to_token)
+            if token_in is None or token_out is None:
+                raise HTTPException(status_code=400, detail="token not found")
+            swap_info = extract_swap_info(form.order_tx_id, None, token_in, token_out)
+        elif form.execution_tx_id is not None:
+            swap_info = extract_swap_info(form.order_tx_id, form.execution_tx_id)
+        else:
+            raise HTTPException(status_code=400, detail="must provide execution_tx or from_token and to_token to extract swap info")
     except Exception as e:
         print(e)
         raise HTTPException(status_code=400, detail="failed to extract swap info")
@@ -450,7 +442,7 @@ def create_swap(
         ))
         db.commit()
     except Exception as e:
-        print(e)
+        print("[Error: create_swap]", f"order_tx_id: {form.order_tx_id}")  # e
         if isinstance(e, IntegrityError):
             raise HTTPException(status_code=400, detail="transaction already exists")
         raise HTTPException(status_code=400, detail="failed to add swap to database")
@@ -463,7 +455,7 @@ def create_swap(
 @router.get("/swaps",
             tags=group_tags,
             response_model=schemas.SwapListResponse)
-@cache('at-e5m')
+@cache('in-1m')
 def get_swaps(
     page: int = 1,
     limit: int = 20,
@@ -874,13 +866,16 @@ def search_pairs(
 
 @router.get("/charting/pairs/{pair}", tags=group_tags)
 @cache('in-1h')
-def resolve_pair(pair: str):
+def resolve_pair(pair: str, db: Session = Depends(get_db)):
     """TradingView resolveSymbol endpoint.
     
     - pair: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
     """
     # Normalize symbol format
-    pair_clean = pair.strip().replace("_", "/").upper()
+    pair_clean = pair.strip().replace("_", "/")
+    pool = db.query(Pool).filter(Pool.pair == pair_clean).first()
+    if not pool:
+        raise HTTPException(status_code=404, detail="Pool not found")
     
     return {
         "name": pair_clean,
@@ -907,8 +902,8 @@ def resolve_pair(pair: str):
 def get_bars(
     pair: str,
     resolution: str,
-    from_: int,
-    to: int,
+    from_: int=None,
+    to: int=None,
     count_back: Optional[int] = None
 ):
     """TradingView getBars endpoint (historical data).
@@ -919,9 +914,13 @@ def get_bars(
     - to: End timestamp in seconds (exclusive)
     - count_back: Required number of bars (optional, TradingView uses this)
     """
+    if to is None:
+        to = int(datetime.now().timestamp())
+    if from_ is None:
+        from_ = to - 10 * TIMEFRAME_DURATION_MAP[resolution]
     try:
         result = get_chart_data(
-            pair=pair,
+            symbol=pair,
             resolution=resolution,
             from_time=from_,
             to_time=to,
@@ -940,6 +939,7 @@ def generate_subscriber_id(symbol: str, resolution: str) -> str:
     pair = symbol.replace("/", "_")
     return f"BARS_{pair}_{resolution}"
 
+# todo: remove this websocket
 @router.websocket("/charting/ws")
 async def ohlc(websocket: WebSocket):
     """TradingView subscribeBars/unsubscribeBars WebSocket endpoint.
