@@ -107,6 +107,7 @@ def extract_swap_info(market_order_tx: str, order_executed_tx: str=None, token_i
             amount_in = v
 
     return {
+        "transaction_id": order_executed_tx,
         "user": user,
         "token_in": token_in,
         "amount_in": amount_in,

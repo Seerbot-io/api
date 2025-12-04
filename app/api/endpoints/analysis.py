@@ -49,9 +49,9 @@ def _get_token_id(token: str) -> str:
     if token not in TOKEN_LIST or TOKEN_LIST is None or len(TOKEN_LIST.items()) == 0:
         db = SessionLocal()
         tokens = db.query(Token.id, Token.symbol).all()
-        for token in tokens:
-            TOKEN_LIST[token.symbol] = token.id
-     
+        for t in tokens:
+            TOKEN_LIST[t.symbol] = t.id
+
     return TOKEN_LIST.get(token, None)
 
 # [not used]
@@ -233,8 +233,6 @@ def get_tokens(
         offset = n
     if offset + page_size > n:
         page_size = n - offset
-    # for t in tokens:
-        # print(t.id, t.name, t.symbol, t.logo_url)
     token_data = [
         schemas.Token(
         id=token.id if token.id else '',
@@ -359,6 +357,7 @@ def get_token_info(
     symbol = symbol.strip()
     token_data = _get_token_info_data(symbol)
     if token_data is None or not token_data:
+        print("get_token_info", symbol, token_data)
         raise HTTPException(status_code=404, detail="Token not found")
     return schemas.TokenMarketInfo(**token_data)
 
@@ -394,6 +393,7 @@ def create_swap(
             if token_in is None or token_out is None:
                 raise HTTPException(status_code=400, detail="token not found")
             swap_info = extract_swap_info(form.order_tx_id, None, token_in, token_out)
+            form.execution_tx_id = swap_info["transaction_id"]
         elif form.execution_tx_id is not None:
             swap_info = extract_swap_info(form.order_tx_id, form.execution_tx_id)
         else:
@@ -402,21 +402,27 @@ def create_swap(
         print(e)
         raise HTTPException(status_code=400, detail="failed to extract swap info")
     
-    tokens = db.query(Token.id, Token.symbol, Token.decimals).filter(Token.id.in_([swap_info["token_in"], swap_info["token_out"]])).all()
-
-    for row in tokens:
-        if row.id == swap_info["token_in"]:
-            token_in = row.symbol
-            amount_in = swap_info["amount_in"] / (10 ** row.decimals)
-        elif row.id == swap_info["token_out"]:
-            token_out = row.symbol
-            amount_out = swap_info["amount_out"] / (10 ** row.decimals)
-        else:
-            raise HTTPException(status_code=400, detail="token not found")
+    if form.from_token is None and form.to_token is None:
+        tokens = db.query(Token.id, Token.symbol, Token.decimals).filter(Token.id.in_([swap_info["token_in"], swap_info["token_out"]])).all()
+        for row in tokens:
+            if row.id == swap_info["token_in"]:
+                token_in_symbol = row.symbol
+                amount_in = swap_info["amount_in"] / (10 ** row.decimals)
+            elif row.id == swap_info["token_out"]:
+                token_out_symbol = row.symbol
+                amount_out = swap_info["amount_out"] / (10 ** row.decimals)
+            else:
+                print("create_swap", swap_info["token_in"], swap_info["token_out"], row.id)
+                raise HTTPException(status_code=400, detail="token not found")
+    else:
+        token_in_symbol = form.from_token
+        token_out_symbol = form.to_token
+        amount_in = swap_info["amount_in"] / (10 ** 6)
+        amount_out = swap_info["amount_out"] / (10 ** 6)
 
     price = amount_out / amount_in
 
-    token_in_info = _get_token_info_data(token_in)
+    token_in_info = _get_token_info_data(token_in_symbol)
     value = amount_in * token_in_info["price"]
 
     fee = swap_info["fee"] / (10 ** 6)  # convert lovelace to ada
@@ -427,11 +433,11 @@ def create_swap(
     })
     try:
         db.add(Swap(
-            transaction_id=form.execution_tx_id,
+            transaction_id=swap_info["transaction_id"],
             user_id=swap_info["user"],
-            from_token=token_in,
+            from_token=token_in_symbol,
             from_amount=amount_in,
-            to_token=token_out,
+            to_token=token_out_symbol,
             to_amount=amount_out,
             price=price,
             value=value,
