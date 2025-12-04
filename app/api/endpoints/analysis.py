@@ -254,9 +254,9 @@ def _get_token_info_data(symbol: str) -> dict:
         symbol = 'USDM'
         query = f"""  
         select a.*, c.price, c.change_24h 
-        ,d.low_24h low_24h, d.high_24h high_24h, d.volume_24h volume_24h
+        ,d.low_24h low_24h, d.high_24h high_24h, d.volume_24h volume_24h, c.price * a.total_supply as market_cap
         from (
-            select id, name, symbol, logo_url
+            select id, name, symbol, logo_url, total_supply
             from proddb.tokens
             where symbol='ADA'
         ) a left join(
@@ -282,9 +282,9 @@ def _get_token_info_data(symbol: str) -> dict:
     else:
         query = f"""  
         select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
-        ,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h
+        ,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h, c.price * a.total_supply as market_cap
         from (
-            select id, name, symbol, logo_url
+            select id, name, symbol, logo_url, total_supply
             from proddb.tokens
             where symbol='{symbol}'
         ) a left join(
@@ -330,7 +330,8 @@ def _get_token_info_data(symbol: str) -> dict:
         "change_24h": token.change_24h,
         "low_24h": token.low_24h,
         "high_24h": token.high_24h,
-        "volume_24h": token.volume_24h
+        "volume_24h": token.volume_24h,
+        "market_cap": token.market_cap
     }
 
 
@@ -361,7 +362,7 @@ def get_token_info(
     return schemas.TokenMarketInfo(**token_data)
 
 
-# @router.websocket("/tokens/{symbol}/ws")
+@router.websocket("/tokens/{symbol}/ws")
 async def token_info_ws(
     websocket: WebSocket,
     symbol: str
@@ -1209,7 +1210,9 @@ def get_trend(
             confidence=confidence,
             price=token_data['price'],
             change_24h=token_data['change_24h'],
-            volume_24h=token_data['volume_24h']
+            volume_24h=token_data['volume_24h'],
+            market_cap=token_data['market_cap'],
+            logo_url=token_data['logo_url']
         ))
     for pair, confidence in sorted_downtrend_pairs:
         token = pair.split('/')[0]
@@ -1219,7 +1222,9 @@ def get_trend(
             confidence=confidence,
             price=token_data['price'],
             change_24h=token_data['change_24h'],
-            volume_24h=token_data['volume_24h']
+            volume_24h=token_data['volume_24h'],
+            market_cap=token_data['market_cap'],
+            logo_url=token_data['logo_url']
         ))
     return schemas.TrendResponse(
         uptrend=uptrend_list,

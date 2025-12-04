@@ -133,8 +133,9 @@ class TokenMarketInfo(CustormBaseModel):
     low_24h: float = 0.0  # low_24h
     high_24h: float = 0.0  # high_24h
     volume_24h: float = 0.0  # volume_24h
+    market_cap: float = 0.0  # market_cap
 
-    @field_validator("price", "change_24h", "low_24h", "high_24h", "volume_24h")
+    @field_validator("price", "change_24h", "low_24h", "high_24h", "volume_24h", "market_cap")
     def round_value(cls, v: float) -> float:
         return round(v, 6)
         
@@ -193,12 +194,14 @@ class TrendPair(CustormBaseModel):
     price: float = 0.0
     change_24h: float = 0.0
     volume_24h: float = 0.0
+    market_cap: float = 0.0
+    logo_url: str = ''
 
     @field_validator("confidence")
     def round_confidence(cls, v: float) -> float:
         return round(v, 2)
 
-    @field_validator("price", "change_24h", "volume_24h")
+    @field_validator("price", "change_24h", "volume_24h", "market_cap")
     def round_value(cls, v: float) -> float:
         return round(v, 6)
 
