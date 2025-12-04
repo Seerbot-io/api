@@ -357,7 +357,6 @@ def get_token_info(
     symbol = symbol.strip()
     token_data = _get_token_info_data(symbol)
     if token_data is None or not token_data:
-        print("get_token_info", symbol, token_data)
         raise HTTPException(status_code=404, detail="Token not found")
     return schemas.TokenMarketInfo(**token_data)
 
@@ -385,7 +384,6 @@ def create_swap(
     *must provide execution_tx or from_token and to_token to extract swap info*
 
     """
-    print(form)
     try:
         if form.execution_tx_id is None and form.from_token is not None and form.to_token is not None:
             token_in = _get_token_id(form.from_token)
@@ -412,7 +410,6 @@ def create_swap(
                 token_out_symbol = row.symbol
                 amount_out = swap_info["amount_out"] / (10 ** row.decimals)
             else:
-                print("create_swap", swap_info["token_in"], swap_info["token_out"], row.id)
                 raise HTTPException(status_code=400, detail="token not found")
     else:
         token_in_symbol = form.from_token
@@ -448,7 +445,6 @@ def create_swap(
         ))
         db.commit()
     except Exception as e:
-        print("[Error: create_swap]", f"order_tx_id: {form.order_tx_id}")  # e
         if isinstance(e, IntegrityError):
             raise HTTPException(status_code=400, detail="transaction already exists")
         raise HTTPException(status_code=400, detail="failed to add swap to database")
