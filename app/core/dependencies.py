@@ -15,9 +15,13 @@ Flow:
 5. Returns wallet_address to the route handler
 """
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, status, Depends
 from typing import Optional
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 from app.core.jwt_utils import verify_token
+from app.db.session import get_db
+from app.models.users import User
 
 
 def _extract_token(authorization: Optional[str]) -> str:
@@ -51,4 +55,35 @@ def get_current_user(authorization: Optional[str] = Header(None, alias="Authoriz
     """
     payload = _extract_token(authorization)
     return payload["wallet_address"]
+
+
+def get_current_user_id(
+    wallet_address: str = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> str:
+    """
+    Get user_id (UUID) from users table based on wallet_address.
+    Creates a new user if one doesn't exist.
+    Updates last_active_at timestamp.
+    Returns the user_id as a string.
+    """
+    # Query for existing user
+    user = db.query(User).filter(User.wallet_address == wallet_address).first()
+    
+    if not user:
+        # Create new user if doesn't exist
+        user = User(
+            wallet_address=wallet_address,
+            last_active_at=func.now()
+        )
+        db.add(user)
+        db.flush()  # Flush to get the ID without committing
+        db.refresh(user)
+    else:
+        # Update last_active_at for existing user
+        user.last_active_at = func.now()
+    
+    db.commit()
+    
+    return str(user.id)
 

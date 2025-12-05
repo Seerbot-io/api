@@ -11,6 +11,7 @@ import secrets
 import os
 
 from app.api.endpoints import (
+    ai_assistant,
     analysis,
     # auth,
     charting,
@@ -100,6 +101,7 @@ async def unified_websocket_test_page():
 app.include_router(health.router)
 
 g_prefix = "/api"
+app.include_router(ai_assistant.router, prefix="/ai-assistant")
 app.include_router(analysis.router, prefix="/analysis")
 app.include_router(charting.router, prefix="/charting")
 app.include_router(web_content.router, prefix="/content")
