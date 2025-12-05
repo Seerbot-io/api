@@ -69,32 +69,41 @@ function formatTokenInfoMessage(data) {
             <img src="${data.logo_url}" alt="${data.symbol}" class="token-logo" onerror="this.style.display='none'">
         </div>` : '';
     
+    // Helper to convert string to number safely
+    const toNumber = (val) => {
+        if (val === null || val === undefined || val === '') return 0;
+        if (typeof val === 'number') return val;
+        if (typeof val === 'string') {
+            const parsed = parseFloat(val);
+            return isNaN(parsed) ? 0 : parsed;
+        }
+        return 0;
+    };
+    
     const formatNumber = (num) => {
-        if (num === null || num === undefined) return 'N/A';
-        if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
-        if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
-        if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
-        return num.toFixed(6);
+        if (num === null || num === undefined || num === '') return 'N/A';
+        const n = toNumber(num);
+        if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+        if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+        if (n >= 1e3) return (n / 1e3).toFixed(2) + 'K';
+        return n.toFixed(6);
     };
     
     const formatPrice = (price) => {
-        if (price === null || price === undefined) return 'N/A';
-        return price.toFixed(6);
-    };
-    
-    const formatPercentage = (pct) => {
-        if (pct === null || pct === undefined) return 'N/A';
-        const sign = pct >= 0 ? '+' : '';
-        return `${sign}${pct.toFixed(2)}%`;
+        if (price === null || price === undefined || price === '') return 'N/A';
+        const p = toNumber(price);
+        return p.toFixed(6);
     };
     
     const formatChange = (change) => {
-        if (change === null || change === undefined) return 'N/A';
-        const sign = change >= 0 ? '+' : '';
-        return `${sign}$${change.toFixed(6)}`;
+        if (change === null || change === undefined || change === '') return 'N/A';
+        const c = toNumber(change);
+        const sign = c >= 0 ? '+' : '';
+        return `${sign}$${c.toFixed(6)}`;
     };
     
-    const changeColor = data.change_24h >= 0 ? '#4caf50' : '#f44336';
+    const changeValue = toNumber(data.change_24h);
+    const changeColor = changeValue >= 0 ? '#4caf50' : '#f44336';
     
     return `
 ${logoHtml}
@@ -118,18 +127,6 @@ ${logoHtml}
     <div class="token-info-item">
         <span class="token-info-label">Market Cap:</span>
         <span class="token-info-value">$${formatNumber(data.market_cap)}</span>
-    </div>
-    <div class="token-info-item">
-        <span class="token-info-label">24h %:</span>
-        <span class="token-info-value" style="color: ${changeColor}">${formatPercentage(data.price_change_percentage_24h)}</span>
-    </div>
-    <div class="token-info-item">
-        <span class="token-info-label">7d %:</span>
-        <span class="token-info-value" style="color: ${data.price_change_percentage_7d >= 0 ? '#4caf50' : '#f44336'}">${formatPercentage(data.price_change_percentage_7d)}</span>
-    </div>
-    <div class="token-info-item">
-        <span class="token-info-label">30d %:</span>
-        <span class="token-info-value" style="color: ${data.price_change_percentage_30d >= 0 ? '#4caf50' : '#f44336'}">${formatPercentage(data.price_change_percentage_30d)}</span>
     </div>
 </div>
 <div class="token-info-raw">
@@ -264,10 +261,7 @@ function connect() {
                             logo_url: tokenData.logo_url,
                             price: tokenData.price,
                             change_24h: tokenData.change_24h,
-                            market_cap: tokenData.market_cap,
-                            price_change_percentage_24h: tokenData.price_change_percentage_24h,
-                            price_change_percentage_7d: tokenData.price_change_percentage_7d,
-                            price_change_percentage_30d: tokenData.price_change_percentage_30d
+                            market_cap: tokenData.market_cap
                         });
                     } else {
                         addMessage('info', 'Update', data);
@@ -276,7 +270,8 @@ function connect() {
                     addMessage('info', 'Message', data);
                 }
             } catch (e) {
-                addMessage('error', 'Parse Error', `Failed to parse message: ${event.data}`);
+                console.error('Error processing message:', e, event.data);
+                addMessage('error', 'Parse Error', `Failed to process message: ${e.message}\n\nRaw data: ${event.data}`);
             }
         };
         

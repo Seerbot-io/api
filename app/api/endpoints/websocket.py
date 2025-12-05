@@ -1,6 +1,8 @@
 import asyncio
+import decimal
 import json
 from typing import Dict, Any, Optional, Tuple
+from unittest import result
 from fastapi import WebSocket, WebSocketDisconnect, HTTPException
 from app.core.router_decorated import APIRouter
 from app.api.endpoints.charting import get_chart_data, SUPPORTED_RESOLUTIONS
@@ -169,7 +171,7 @@ async def unified_websocket(websocket: WebSocket):
     await websocket.accept()
     # Track subscriptions with their associated tasks: {channel: ChannelSubscription}
     subscriptions: Dict[str, ChannelSubscription] = {}
-    print(f"WebSocket connected: {websocket}")
+    # print(f"WebSocket connected: {websocket}")
     try:
         while True:
             try:
@@ -272,7 +274,6 @@ async def unified_websocket(websocket: WebSocket):
                 await websocket.send_json({"error": "Invalid JSON format"})
             except Exception as e:
                 await websocket.send_json({"error": str(e)})
-            print("===========")
     except WebSocketDisconnect:
         print("WebSocket disconnected")
     except Exception as e:
@@ -372,17 +373,18 @@ async def handle_ohlc(
                     "data": {
                         "symbol": symbol,
                         "timestamp": current_timestamp,
-                        "open": float(row['open']) if row['open'] is not None else 0.0,
-                        "high": float(row['high']) if row['high'] is not None else 0.0,
-                        "low": float(row['low']) if row['low'] is not None else 0.0,
-                        "close": float(row['close']) if row['close'] is not None else 0.0,
-                        "volume": float(row['volume']) if row['volume'] is not None else 0.0,
+                        "open": round(float(row['open']) if row['open'] is not None else 0, 6),
+                        "high": round(float(row['high']) if row['high'] is not None else 0, 6),
+                        "low": round(float(row['low']) if row['low'] is not None else 0, 6),
+                        "close": round(float(row['close']) if row['close'] is not None else 0, 6),
+                        "volume": round(float(row['volume']) if row['volume'] is not None else 0, 6),
+                        "decimals": 6
                     }
                 }
     except Exception as e:
         print(f"Error querying data for {symbol} (channel {subscription.channel}): {e}")
         await websocket.send_json({
-            "error": str(e),
+            "error": "failed to get ohlc data",
             "channel": subscription.channel
         })
     return None
@@ -410,31 +412,148 @@ async def handle_token_info(
     symbol = symbol.strip().upper()
     try:
         token_data = _get_token_info_data(symbol)  # have cache
-        
         # Return update data
-        return {
+        result = {
             "channel": subscription.channel,
             "type": "token_info",
             "data": {
                 "symbol": symbol,
                 "name": token_data.get("name"),
                 "logo_url": token_data.get("logo_url", ""),
-                "price": token_data.get("price", 0.0),
-                "change_24h": token_data.get("change_24h", 0.0),
-                "price_change_percentage": token_data.get("price_change_percentage", 0.0),
-                "price_change_percentage_24h": token_data.get("price_change_percentage_24h", 0.0),
-                "price_change_percentage_7d": token_data.get("price_change_percentage_7d", 0.0),
-                "price_change_percentage_30d": token_data.get("price_change_percentage_30d", 0.0),
-                "market_cap": token_data.get("market_cap", 0.0),
+                "price": round(token_data.get('price', 0), 6),
+                "change_24h": round(token_data.get('change_24h', 0), 6),
+                "market_cap": round(token_data.get('market_cap', 0), 6),
+                "decimals": 6
             }
         }
+        return result
     except Exception as e:
         print(f"Error querying token data for {symbol} (channel {subscription.channel}): {e}")
         await websocket.send_json({
-            "error": str(e),
+            "error": "failed to get token info data",
             "channel": subscription.channel
         })
         if isinstance(e, HTTPException) and e.status_code == 404:
             raise FatalSubscriptionError(f"Token not found: {symbol}")
     return None
 
+websocket_schema = {
+        "/ws": {
+            "get": {
+                "summary": "[WebSocket] Unified WebSocket endpoint",
+                "tags": ["WebSocket"],
+                "description": """Unified WebSocket endpoint for subscribing to multiple data channels.
+
+**Connection:**
+- Connect via WebSocket protocol (ws:// or wss://)
+- Maximum 5 concurrent subscriptions per client
+- Updates are sent every 60 seconds for active subscriptions
+
+**Request Message Format:**
+```json
+{
+    "action": "subscribe" | "unsubscribe",
+    "channel": "{function}:{param1}|{param2}|..."
+}
+```
+
+**Supported Channels:**
+
+1. **OHLC (Candlestick Data)**
+   - Format: `ohlc:{symbol}|{resolution}`
+   - Example: `ohlc:USDM_ADA|5m`
+   - Parameters:
+     - `symbol`: Trading pair symbol (e.g., USDM_ADA, USDM_BTC)
+     - `resolution`: Time resolution (e.g., 1m, 5m, 15m, 1h, 4h, 1d)
+   - Response Data:
+     ```json
+     {
+         "channel": "ohlc:USDM_ADA|5m",
+         "type": "ohlc",
+         "data": {
+             "symbol": "USDM/ADA",
+             "timestamp": 1234567890,
+             "open": 0.123456,
+             "high": 0.125000,
+             "low": 0.122000,
+             "close": 0.124500,
+             "volume": 1000.123456,
+             "decimals": 6
+         }
+     }
+     ```
+
+2. **Token Info**
+   - Format: `token_info:{symbol}`
+   - Example: `token_info:USDM`
+   - Parameters:
+     - `symbol`: Token symbol (e.g., USDM, ADA, BTC)
+   - Response Data:
+     ```json
+     {
+         "channel": "token_info:USDM",
+         "type": "token_info",
+         "data": {
+             "symbol": "USDM",
+             "name": "Token Name",
+             "logo_url": "https://...",
+             "price": 1.234567,
+             "change_24h": 5.678901,
+             "market_cap": 1234567.890123,
+             "decimals": 6
+         }
+     }
+     ```
+
+**Response Messages:**
+
+- **Subscribe Success:**
+  ```json
+  {
+      "status": "subscribed",
+      "channel": "ohlc:USDM_ADA|5m",
+      "type": "ohlc"
+  }
+  ```
+
+- **Already Subscribed:**
+  ```json
+  {
+      "status": "already_subscribed",
+      "channel": "ohlc:USDM_ADA|5m"
+  }
+  ```
+
+- **Unsubscribe Success:**
+  ```json
+  {
+      "status": "unsubscribed",
+      "channel": "ohlc:USDM_ADA|5m"
+  }
+  ```
+
+- **Error Response:**
+  ```json
+  {
+      "error": "Error message",
+      "channel": "ohlc:USDM_ADA|5m"
+  }
+  ```
+
+**Error Cases:**
+- Missing required fields (action, channel)
+- Invalid channel format
+- Unknown channel type
+- Maximum subscriptions reached (5)
+- Invalid resolution (for OHLC channels)
+- Token not found (for token_info channels)
+- Invalid JSON format
+                """,
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols - WebSocket connection established"
+                    }
+                },
+            }
+        },
+    }

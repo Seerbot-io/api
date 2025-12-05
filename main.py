@@ -75,22 +75,7 @@ async def openapi(username: str = Depends(doc_auth)):
     openapi_schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
 
     # Add WebSocket route to the schema
-    openapi_schema["paths"].update({
-        "/ws": {
-            "get": {
-                "summary": "[WebSocket] Unified WebSocket endpoint",
-                "tags": ["WebSocket"],
-                "description": """Unified WebSocket endpoint for subscribing to multiple data channels. Send messages with action (subscribe/unsubscribe) and channel.\n
-Supported channels:\n
-- ohlc:{symbol}|{resolution} - e.g., ohlc:USDM_ADA|5m\n
-- token_info:{symbol} - e.g., token_info:USDM
-                """,
-                "responses": {200: {"description": "WebSocket connection"}},
-            }
-        },
-        # "/analysis/tokens/{symbol}/ws":  analysis.token_market_info_ws_schema,
-        # "/analysis/charting/ws":  analysis.subscribe_bars_schema,
-    })
+    openapi_schema["paths"].update(websocket.websocket_schema)
     return openapi_schema
 
 @app.get("/websocket-test", include_in_schema=False)
