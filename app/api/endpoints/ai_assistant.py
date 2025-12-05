@@ -64,8 +64,8 @@ def load_chat(
                 id=msg.id,
                 content=msg.content,
                 role=msg.role,
-                createdAt=msg.created_at,
-                toolInvocations=msg.tool_invocations
+                created_at=msg.created_at,
+                tool_invocations=msg.tool_invocations
             )
             for msg in messages
         ]
@@ -109,11 +109,11 @@ def save_chat(
     """
     try:
         # 1. Find user by wallet address
-        user = db.query(User).filter(User.wallet_address == request.walletAddress).first()
+        user = db.query(User).filter(User.wallet_address == request.wallet_address).first()
 
         # 2. Auto-create user if not found
         if not user:
-            user = User(wallet_address=request.walletAddress)
+            user = User(wallet_address=request.wallet_address)
             db.add(user)
             db.commit()     # Need commit so user.id becomes available
             db.refresh(user)
@@ -126,10 +126,10 @@ def save_chat(
                 'content': msg.content,
                 'role': msg.role,
                 'created_at': (
-                    msg.createdAt if isinstance(msg.createdAt, datetime)
-                    else datetime.fromisoformat(msg.createdAt)
+                    msg.created_at if isinstance(msg.created_at, datetime)
+                    else datetime.fromisoformat(msg.created_at)
                 ),
-                'tool_invocations': msg.toolInvocations or None
+                'tool_invocations': msg.tool_invocations or None
             }
 
             existing_msg = (
