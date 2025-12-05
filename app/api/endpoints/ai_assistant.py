@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.chat_messages import ChatMessage as ChatMessageModel
+from app.models.chat_messages import ChatMessage
+from app.models.users import User
 import app.schemas.chat as schemas
 
 router = APIRouter()
@@ -20,41 +21,62 @@ group_tags = ["AI Assistant"]
     response_model=List[schemas.ChatMessage]
 )
 def load_chat(
-    userId: str,
+    wallet_address: str,
     db: Session = Depends(get_db)
 ) -> List[schemas.ChatMessage]:
     """
-    Load chat messages for the specified user.
-    Returns messages ordered by creation time (ascending).
-    Matches TypeScript: loadChat(userId: string): Promise<Message[]>
-    
-    - userId: UUID of the user to load messages for
+    Load all chat messages for a user based on their wallet address.
+
+    This endpoint:
+    - Finds the user using the provided wallet address.
+    - Retrieves all chat messages associated with the user.
+    - Returns messages ordered by creation time (ascending).
+
+    Query Parameters:
+    - wallet_address (str): The wallet address of the user.
+
+    Responses:
+    - 200: List of chat messages.
+    - 404: User not found.
+    - 500: Internal server error.
     """
     try:
-        messages = db.query(ChatMessageModel)\
-            .filter(ChatMessageModel.user_id == userId)\
-            .order_by(ChatMessageModel.created_at.asc())\
+        # Find user by wallet address
+        user = db.query(User).filter(User.wallet_address == wallet_address).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
+        # Query chat messages using join
+        messages = (
+            db.query(ChatMessage)
+            .join(User, User.id == ChatMessage.user_id)
+            .filter(User.wallet_address == wallet_address)
+            .order_by(ChatMessage.created_at.asc())
             .all()
-        
-        # Convert database models to schema models - return array directly
-        message_list = []
-        for msg in messages:
-            message_list.append(schemas.ChatMessage(
+        )
+
+        # Convert database models to schema
+        message_list = [
+            schemas.ChatMessage(
                 id=msg.id,
                 content=msg.content,
                 role=msg.role,
                 createdAt=msg.created_at,
                 toolInvocations=msg.tool_invocations
-            ))
-        
+            )
+            for msg in messages
+        ]
+
         return message_list
-    
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error loading chat messages: {str(e)}"
         )
-
 
 @router.post(
     "/chat",
@@ -66,48 +88,69 @@ def save_chat(
     db: Session = Depends(get_db)
 ) -> Response:
     """
-    Save or update chat messages for the specified user.
-    Uses upsert operation to insert new messages or update existing ones.
-    Matches TypeScript: saveChat({ userId, messages }): Promise<void>
-    
-    - request: Contains userId and messages to save
+    Save or update chat messages using a wallet address.
+
+    This endpoint:
+    - Looks up a user by wallet address.
+    - Automatically creates the user if they do not exist.
+    - Upserts (inserts or updates) all provided chat messages.
+
+    Request Body:
+    - walletAddress (str): The user’s wallet address.
+    - messages (List): List of chat messages to save.
+
+    Behavior:
+    - If a message ID already exists → it is updated.
+    - If a message ID is new → it is inserted.
+
+    Responses:
+    - 204: Messages saved successfully.
+    - 500: Error during save operation.
     """
     try:
-        # Prepare messages for upsert
-        messages_to_upsert = []
+        # 1. Find user by wallet address
+        user = db.query(User).filter(User.wallet_address == request.walletAddress).first()
+
+        # 2. Auto-create user if not found
+        if not user:
+            user = User(wallet_address=request.walletAddress)
+            db.add(user)
+            db.commit()     # Need commit so user.id becomes available
+            db.refresh(user)
+
+        # 3. Save or update messages (upsert)
         for msg in request.messages:
-            messages_to_upsert.append({
+            msg_data = {
                 'id': msg.id,
-                'user_id': request.userId,
+                'user_id': user.id,
                 'content': msg.content,
                 'role': msg.role,
-                'created_at': msg.createdAt if isinstance(msg.createdAt, datetime) else datetime.fromisoformat(msg.createdAt) if isinstance(msg.createdAt, str) else datetime.now(),
+                'created_at': (
+                    msg.createdAt if isinstance(msg.createdAt, datetime)
+                    else datetime.fromisoformat(msg.createdAt)
+                ),
                 'tool_invocations': msg.toolInvocations or None
-            })
-        
-        # Perform upsert operation
-        for msg_data in messages_to_upsert:
-            # Check if message exists
-            existing_msg = db.query(ChatMessageModel)\
-                .filter(ChatMessageModel.id == msg_data['id'])\
-                .filter(ChatMessageModel.user_id == request.userId)\
+            }
+
+            existing_msg = (
+                db.query(ChatMessage)
+                .filter(ChatMessage.id == msg_data['id'])
+                .filter(ChatMessage.user_id == user.id)
                 .first()
-            
+            )
+
             if existing_msg:
-                # Update existing message
                 existing_msg.content = msg_data['content']
                 existing_msg.role = msg_data['role']
                 existing_msg.created_at = msg_data['created_at']
                 existing_msg.tool_invocations = msg_data['tool_invocations']
             else:
-                # Insert new message
-                new_msg = ChatMessageModel(**msg_data)
+                new_msg = ChatMessage(**msg_data)
                 db.add(new_msg)
-        
+
         db.commit()
-        
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    
+
     except Exception as e:
         db.rollback()
         raise HTTPException(
