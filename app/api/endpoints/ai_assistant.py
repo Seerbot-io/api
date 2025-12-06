@@ -109,15 +109,15 @@ def save_chat(
     """
     try:
         # 1. Find user by wallet address
-        user = db.query(User).filter(User.wallet_address == request.wallet_address).first()
+        user = db.query(User).filter(User.wallet_address == request.walletAddress).first()
 
         # 2. Auto-create user if not found
         if not user:
-            user = User(wallet_address=request.wallet_address)
+            user = User(wallet_address=request.walletAddress)
             db.add(user)
             db.commit()     # Need commit so user.id becomes available
             db.refresh(user)
-
+        print(request.messages)
         # 3. Save or update messages (upsert)
         for msg in request.messages:
             msg_data = {
@@ -125,11 +125,11 @@ def save_chat(
                 'user_id': user.id,
                 'content': msg.content,
                 'role': msg.role,
-                'created_at': (
-                    msg.created_at if isinstance(msg.created_at, datetime)
-                    else datetime.fromisoformat(msg.created_at)
+                'createdAt': (
+                    msg.createdAt if isinstance(msg.createdAt, datetime)
+                    else datetime.fromisoformat(msg.createdAt)
                 ),
-                'tool_invocations': msg.tool_invocations or None
+                'toolInvocations': msg.toolInvocations or None
             }
 
             existing_msg = (
@@ -142,8 +142,8 @@ def save_chat(
             if existing_msg:
                 existing_msg.content = msg_data['content']
                 existing_msg.role = msg_data['role']
-                existing_msg.created_at = msg_data['created_at']
-                existing_msg.tool_invocations = msg_data['tool_invocations']
+                existing_msg.created_at = msg_data['createdAt']
+                existing_msg.tool_invocations = msg_data['toolInvocations']
             else:
                 new_msg = ChatMessage(**msg_data)
                 db.add(new_msg)

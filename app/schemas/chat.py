@@ -16,12 +16,12 @@ class ChatMessage(CustormBaseModel):
     id: str
     content: str
     role: str  # 'user', 'assistant', 'system', 'tool'
-    created_at: datetime = Field(alias="created_at")
-    tool_invocations: Optional[Dict[str, Any]] = Field(default=None, alias="tool_invocations")
+    createdAt: datetime = Field(alias="createdAt")
+    toolInvocations: Optional[Dict[str, Any]] = Field(default=None, alias="toolInvocations")
 
 
 class SaveChatRequest(CustormBaseModel):
     """Request model for saving chat messages - matches TypeScript saveChat input"""
-    wallet_address: str
+    walletAddress: str = Field(default=None, alias="walletAddress")
     messages: List[ChatMessage]
 
