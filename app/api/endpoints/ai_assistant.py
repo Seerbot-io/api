@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Response
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -41,35 +42,28 @@ def load_chat(
     - 500: Internal server error.
     """
     try:
-        # Find user by wallet address
-        user = db.query(User).filter(User.wallet_address == wallet_address).first()
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-
         # Query chat messages using join
-        messages = (
-            db.query(ChatMessage)
-            .join(User, User.id == ChatMessage.user_id)
-            .filter(User.wallet_address == wallet_address)
-            .order_by(ChatMessage.created_at.asc())
-            .all()
-        )
+        sql = f"""
+        select cm.id, cm.content, cm.role, cm.created_at, cm.tool_invocations
+        from (
+            SELECT u.id FROM chatbot.users u where u.wallet_address = '{wallet_address}'
+        ) u
+        inner JOIN chatbot.chat_messages cm ON cm.user_id = u.id
+        ORDER BY cm.created_at ASC
+        """
+        messages = db.execute(text(sql)).fetchall()
 
         # Convert database models to schema
         message_list = [
             schemas.ChatMessage(
-                id=msg.id,
-                content=msg.content,
-                role=msg.role,
-                created_at=msg.created_at,
-                tool_invocations=msg.tool_invocations
+                id=msg.id or '',
+                content=msg.content or '',
+                role=msg.role or 'user',
+                createdAt=msg.created_at or datetime.now(),
+                toolInvocations= msg.tool_invocations or {}
             )
             for msg in messages
         ]
-
         return message_list
 
     except Exception as e:
