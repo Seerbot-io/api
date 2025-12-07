@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, field_validator
 from app.schemas.my_base_model import CustormBaseModel
 
 
@@ -13,15 +13,19 @@ class ChatMessage(CustormBaseModel):
         }
     )
     
-    id: str
-    content: str
-    role: str  # 'user', 'assistant', 'system', 'tool'
-    createdAt: datetime = Field(alias="createdAt")
-    toolInvocations: Optional[Dict[str, Any]] = Field(default=None, alias="toolInvocations")
+    id: str = ''
+    content: str = ''
+    role: str  = ''# 'user', 'assistant', 'system', 'tool'
+    created_at: datetime = Field(alias="createdAt")
+    tool_invocations: Optional[Dict[str, Any]] = Field(default=None, alias="toolInvocations")
+
+    # @field_validator("id")
+    # def validate(cls, v: str) -> str:
+    #     return v
 
 
 class SaveChatRequest(CustormBaseModel):
     """Request model for saving chat messages - matches TypeScript saveChat input"""
-    walletAddress: str = Field(default=None, alias="walletAddress")
+    wallet_address: str = Field(default=None, alias="walletAddress")
     messages: List[ChatMessage]
 
