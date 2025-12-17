@@ -138,10 +138,11 @@ def get_indicators(
     
     # Build query
     limit_str = f" LIMIT {limit}" if limit > 0 else ""
-    
+    timeframe_duration = TIMEFRAME_DURATION_MAP.get(timeframe_lower, 3600)
+
     query = f"""
         SELECT 
-            open_time + {TIMEFRAME_MAP[timeframe_lower]} as timestamp,
+            open_time + {timeframe_duration} as timestamp,
             open,
             high,
             low,

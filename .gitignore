@@ -1,3 +1,11 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
 # code editor
 .vscode
 .idea
@@ -6,7 +14,6 @@
 tasks/
 
 # env
-__pycache__/
 venv
 .venv
 .env
