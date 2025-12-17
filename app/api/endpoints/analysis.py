@@ -375,76 +375,39 @@ def create_swap(
     - body: Request body containing:
         - order_tx_id: On chain order transaction ID (required)
         - execution_tx_id: On chain execution transaction ID (optional)
-        - from_token: From token symbol (e.g., 'USDM')
-        - to_token: To token symbol (e.g., 'ADA')
+        - from_token: From token symbol (e.g., 'USDM') (optional)
+        - to_token: To token symbol (e.g., 'ADA') (optional)
     OUTPUT:
     - message: oke
 
-    **Note:**
-    *must provide execution_tx or from_token and to_token to extract swap info*
-
     """
     try:
-        if form.execution_tx_id is None and form.from_token is not None and form.to_token is not None:
-            token_in = _get_token_id(form.from_token)
-            token_out = _get_token_id(form.to_token)
-            if token_in is None or token_out is None:
-                raise HTTPException(status_code=400, detail="token not found")
-            swap_info = extract_swap_info(form.order_tx_id, None, token_in, token_out)
-            form.execution_tx_id = swap_info["transaction_id"]
-        elif form.execution_tx_id is not None:
-            swap_info = extract_swap_info(form.order_tx_id, form.execution_tx_id)
-        else:
-            raise HTTPException(status_code=400, detail="must provide execution_tx or from_token and to_token to extract swap info")
+        swap_info = extract_swap_info(form.order_tx_id)
+        # print(swap_info)
     except Exception as e:
         print(e)
         raise HTTPException(status_code=400, detail="failed to extract swap info")
-    
-    if form.from_token is None and form.to_token is None:
-        tokens = db.query(Token.id, Token.symbol, Token.decimals).filter(Token.id.in_([swap_info["token_in"], swap_info["token_out"]])).all()
-        for row in tokens:
-            if row.id == swap_info["token_in"]:
-                token_in_symbol = row.symbol
-                amount_in = swap_info["amount_in"] / (10 ** row.decimals)
-            elif row.id == swap_info["token_out"]:
-                token_out_symbol = row.symbol
-                amount_out = swap_info["amount_out"] / (10 ** row.decimals)
-            else:
-                raise HTTPException(status_code=400, detail="token not found")
-    else:
-        token_in_symbol = form.from_token
-        token_out_symbol = form.to_token
-        amount_in = swap_info["amount_in"] / (10 ** 6)
-        amount_out = swap_info["amount_out"] / (10 ** 6)
-
-    price = amount_out / amount_in
-
-    token_in_info = _get_token_info_data(token_in_symbol)
-    value = amount_in * token_in_info["price"]
-
-    fee = swap_info["fee"] / (10 ** 6)  # convert lovelace to ada
-
-    extend_data = json.dumps({
-        "order_tx_id": form.order_tx_id,
-        "execution_tx_id": form.execution_tx_id
-    })
+    swap_info["extend_data"] = {"order_tx_id": form.order_tx_id, "execution_tx_id": swap_info["transaction_id"]}
     try:
-        db.add(Swap(
+        row = Swap(
             transaction_id=swap_info["transaction_id"],
             user_id=swap_info["user"],
-            from_token=token_in_symbol,
-            from_amount=amount_in,
-            to_token=token_out_symbol,
-            to_amount=amount_out,
-            price=price,
-            value=value,
+            from_token=swap_info["token_in"],
+            from_amount=swap_info["amount_in"],
+            to_token=swap_info["token_out"],
+            to_amount=swap_info["amount_out"],
+            price=swap_info["price"],
+            value=swap_info["value"],
             timestamp=swap_info["timestamp"],
-            fee=fee,
-            extend_data=extend_data,
+            fee=swap_info["fee"],
+            fee_price = swap_info["fee_price"],
+            extend_data=json.dumps(swap_info["extend_data"]),
             status="completed"
-        ))
+        )
+        db.add(row)
         db.commit()
     except Exception as e:
+        print(e)
         if isinstance(e, IntegrityError):
             raise HTTPException(status_code=400, detail="transaction already exists")
         raise HTTPException(status_code=400, detail="failed to add swap to database")

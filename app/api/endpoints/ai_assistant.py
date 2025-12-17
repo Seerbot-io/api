@@ -145,8 +145,3 @@ def save_chat(
 
     except Exception as e:
         print("Error in save_chat:", str(e))
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error saving chat messages: {str(e)}"
-        )

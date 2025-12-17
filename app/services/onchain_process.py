@@ -1,3 +1,4 @@
+from datetime import datetime
 from pycardano import BlockFrostChainContext
 import requests
 from app.core.config import settings
@@ -73,7 +74,7 @@ def get_executed_tx(user: str, market_order_tx: str, token_in: str, token_out: s
     raise Exception(f"Market order tx not found: {market_order_tx}")
 
 
-def extract_swap_info(market_order_tx: str, order_executed_tx: str=None, token_in: str=None, token_out: str=None) -> dict:
+def extract_swap_info_v0(market_order_tx: str, order_executed_tx: str=None, token_in: str=None, token_out: str=None) -> dict:
     global context
     try:
         mo_utxos = context.api.transaction_utxos(market_order_tx)
@@ -115,4 +116,56 @@ def extract_swap_info(market_order_tx: str, order_executed_tx: str=None, token_i
         "amount_out": amount_out,
         "fee": fee,
         "timestamp": int(timestamp)
+    }
+
+def extract_swap_info(market_order_tx: str) -> dict:
+    price_res = requests.get("https://agg-api.minswap.org/aggregator/ada-price?currency=usd")
+    ada_price = price_res.json().get("value",{"price": 1}).get("price")
+    mo_utxos = context.api.transaction_utxos("ab79c2bdc3890c1cc6097dc16dbdce2a3819d7f246669b0aa5f767a43a1a68f3")
+    user = mo_utxos.inputs[0].address
+
+    url = "https://monorepo-mainnet-prod.minswap.org/aggregator/orders"
+    body = {
+        "owner_address": user,
+        "limit": 1,
+        "amount_in_decimal": True,
+        "tx_id": market_order_tx
+    }
+    response = requests.post(url, json=body)
+    if response.status_code != 200:
+        raise Exception(f"Failed to get executed tx: {response.status_code} {response.text}")
+    data = response.json()
+    
+    if len(data.get("orders", [])) == 0:
+        raise Exception(f"Order not found: {market_order_tx}")
+    order = data.get("orders", [])[0]
+    detail = order.get("details", {})
+    amount_in = float(detail.get("input_amount", 0))
+    amount_out = float(detail.get("executed_amount", 0))
+    fee = round(float(order.get("batcher_fee", 0)) + float(detail.get("trading_fee", 0)), 6)  # not all the fee
+    
+    asset_a = order.get("asset_a", {})
+    asset_b = order.get("asset_b", {})
+    if detail.get("direction", "") == "A_TO_B":
+        token_in = asset_a.get("ticker")
+        token_out = asset_b.get("ticker")
+        value = asset_a.get("price_by_ada", 1) * amount_in
+        price = asset_b.get("price_by_ada", 1) / asset_a.get("price_by_ada", 1)
+    else:
+        token_in = asset_b.get("ticker")
+        token_out = asset_a.get("ticker")
+        value = asset_b.get("price_by_ada", 1) * amount_out
+        price = asset_a.get("price_by_ada", 1) / asset_b.get("price_by_ada", 1)
+    return {
+        "transaction_id": order.get("updated_tx_id", ""),
+        "user": user,
+        "token_in": token_in,
+        "amount_in": amount_in,
+        "token_out": token_out,
+        "amount_out": amount_out,
+        "price": price,
+        "value": value,
+        "fee": fee,
+        "fee_price": ada_price,
+        "timestamp": int(datetime.fromisoformat(order.get('updated_at')).timestamp())
     }

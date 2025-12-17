@@ -34,6 +34,7 @@ class Swap(Base):
     value = Column(Float, nullable=False)
     timestamp = Column(BigInteger, nullable=False)
     fee = Column(Float, nullable=False)
+    fee_price = Column(Float, nullable=False)
     extend_data = Column(String(255), nullable=False)
     status = Column(String(50), default='pending', nullable=False)  # 'pending', 'completed', 'failed'
 
