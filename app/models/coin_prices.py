@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, BigInteger, Float
+from sqlalchemy import BigInteger, Column, Float, String
+
 from app.db.base import Base
 
 
@@ -17,6 +18,7 @@ class CoinPrice(Base):
         "open_time": 1763415300
     }
     """
+
     update_time = Column(BigInteger)
     close_time = Column(BigInteger)
     symbol = Column(String(225))
@@ -27,10 +29,14 @@ class CoinPrice(Base):
     volume = Column(Float)
     open_time = Column(BigInteger)
 
+
 class CoinPrice5m(CoinPrice):
     """Model for coin_prices_5m table in proddb schema"""
+
     __tablename__ = "coin_prices_5m"
+
 
 class CoinPrice1h(CoinPrice):
     """Model for coin_prices_1h table in proddb schema"""
+
     __tablename__ = "coin_prices_1h"

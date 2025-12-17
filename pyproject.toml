@@ -9,7 +9,7 @@ dependencies = [
     "cryptography==46.0.3",
     "fastapi==0.116.1",
     "itsdangerous>=2.2.0",
-    "jwt==1.4.0",
+    "pyjwt==2.8.0",
     "psycopg2-binary>=2.9.11",
     "pycardano==0.17.0",
     "pydantic==2.11.7",
@@ -21,4 +21,9 @@ dependencies = [
     "sqlalchemy==2.0.27",
     "starlette==0.47.3",
     "uvicorn==0.35.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.407",
 ]

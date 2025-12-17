@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, BigInteger, Float, Integer
+from sqlalchemy import BigInteger, Column, Float, String
+
 from app.db.base import Base
 
 
@@ -21,6 +22,7 @@ class Swap(Base):
         "status": "completed",
     }
     """
+
     __tablename__ = "swap_transactions"
     __table_args__ = {"schema": "proddb"}
 
@@ -36,5 +38,6 @@ class Swap(Base):
     fee = Column(Float, nullable=False)
     fee_price = Column(Float, nullable=False)
     extend_data = Column(String(255), nullable=False)
-    status = Column(String(50), default='pending', nullable=False)  # 'pending', 'completed', 'failed'
-
+    status = Column(
+        String(50), default="pending", nullable=False
+    )  # 'pending', 'completed', 'failed'

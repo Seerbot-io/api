@@ -1,45 +1,50 @@
-from pydantic import BaseModel, field_validator, Field
+from typing import List, Optional, Union
+
+from pydantic import Field, field_validator
+
 from app.schemas.my_base_model import CustormBaseModel
-from typing import Union, List, Optional
+
 
 class Prediction(CustormBaseModel):
-    symbol: str = ''
-    date: str = ''
+    symbol: str = ""
+    date: str = ""
     price: float = 0
     prediction: float = 0
     price_change: float = 0
 
     @field_validator("price")
-    def round_price(cls, v:float) -> float:
+    def round_price(cls, v: float) -> float:
         return round(v, 6)
-    
+
     @field_validator("prediction")
-    def round_prediction(cls, v:float) -> float:
+    def round_prediction(cls, v: float) -> float:
         return round(v, 6)
 
     @field_validator("price_change")
     def round_pc(cls, v: float) -> float:
         return round(v, 6)
-    
+
+
 class PredictionV2(CustormBaseModel):
-    symbol: str = ''
-    update_time: str = ''
-    target_time: str = ''
+    symbol: str = ""
+    update_time: str = ""
+    target_time: str = ""
     price: float = 0
     prediction: float = 0
     price_change: float = 0
 
     @field_validator("price")
-    def round_price(cls, v:float) -> float:
+    def round_price(cls, v: float) -> float:
         return round(v, 6)
-    
+
     @field_validator("prediction")
-    def round_prediction(cls, v:float) -> float:
+    def round_prediction(cls, v: float) -> float:
         return round(v, 6)
 
     @field_validator("price_change")
     def round_pc(cls, v: float) -> float:
         return round(v, 6)
+
 
 class Validate(CustormBaseModel):
     mae: float = 0
@@ -53,17 +58,24 @@ class Validate(CustormBaseModel):
     false_pred: int = 0
 
     @field_validator("mae")
-    def round_mae(cls, v:float) -> float:
+    def round_mae(cls, v: float) -> float:
         return round(v, 8)
-    
-    @field_validator("avg_err_rate", "max_profit_rate", "max_loss_rate", "avg_profit_rate", "accuracy")
-    def round_err_rate(cls, v:float) -> float:
+
+    @field_validator(
+        "avg_err_rate",
+        "max_profit_rate",
+        "max_loss_rate",
+        "avg_profit_rate",
+        "accuracy",
+    )
+    def round_err_rate(cls, v: float) -> float:
         return round(v, 4)
 
+
 class BackTest(CustormBaseModel):
-    symbol: str = ''
-    open_time: str = ''
-    close_time: str = ''
+    symbol: str = ""
+    open_time: str = ""
+    close_time: str = ""
     close_predict: float = 0
     open: float = 0
     close: float = 0
@@ -71,24 +83,25 @@ class BackTest(CustormBaseModel):
     low: float = 0
 
     @field_validator("open", "close", "high", "low", "close_predict")
-    def round_value(cls, v:float) -> float:
+    def round_value(cls, v: float) -> float:
         return round(v, 6)
-    
+
 
 class BackTestV2(CustormBaseModel):
-    open_time: str = ''
-    close_time: str = ''
-    close_predict: Union[float, str] = 'null'
+    open_time: str = ""
+    close_time: str = ""
+    close_predict: Union[float, str] = "null"
     open: float = 0
     close: float = 0
     high: float = 0
     low: float = 0
-    pred_trend: str = 'flat'
-    trend: str = 'flat'
+    pred_trend: str = "flat"
+    trend: str = "flat"
 
     @field_validator("open", "close", "high", "low")
-    def round_value(cls, v:float) -> float:
+    def round_value(cls, v: float) -> float:
         return round(v, 6)
+
 
 class IndicatorData(CustormBaseModel):
     timestamp: int = 0
@@ -102,20 +115,25 @@ class IndicatorData(CustormBaseModel):
     adx14: float = 0
     psar: float = 0
 
-    @field_validator("open", "high", "low", "close", "volume", "rsi7", "rsi14", "adx14", "psar")
-    def round_value(cls, v:float) -> float:
+    @field_validator(
+        "open", "high", "low", "close", "volume", "rsi7", "rsi14", "adx14", "psar"
+    )
+    def round_value(cls, v: float) -> float:
         return round(v, 6)
 
+
 class IndicatorsResponse(CustormBaseModel):
-    pair: str = ''
-    timeframe: str = ''
+    pair: str = ""
+    timeframe: str = ""
     data: List[IndicatorData] = []
 
+
 class Token(CustormBaseModel):
-    id: str = ''
-    name: str = ''
-    symbol: str = ''
-    logo_url: str = ''
+    id: str = ""
+    name: str = ""
+    symbol: str = ""
+    logo_url: str = ""
+
 
 class TokenList(CustormBaseModel):
     total: int = 0
@@ -124,10 +142,10 @@ class TokenList(CustormBaseModel):
 
 
 class TokenMarketInfo(CustormBaseModel):
-    id: str = ''
-    name: str = ''
-    symbol: str = ''
-    logo_url: str = ''
+    id: str = ""
+    name: str = ""
+    symbol: str = ""
+    logo_url: str = ""
     price: float = 0.0
     change_24h: float = 0.0  # change_24h
     low_24h: float = 0.0  # low_24h
@@ -135,12 +153,15 @@ class TokenMarketInfo(CustormBaseModel):
     volume_24h: float = 0.0  # volume_24h
     market_cap: float = 0.0  # market_cap
 
-    @field_validator("price", "change_24h", "low_24h", "high_24h", "volume_24h", "market_cap")
+    @field_validator(
+        "price", "change_24h", "low_24h", "high_24h", "volume_24h", "market_cap"
+    )
     def round_value(cls, v: float) -> float:
         return round(v, 6)
-        
+
+
 class SwapCreate(CustormBaseModel):
-    order_tx_id: str = ''
+    order_tx_id: str = ""
     execution_tx_id: Optional[str] = None
     from_token: Optional[str] = None
     to_token: Optional[str] = None
@@ -151,22 +172,25 @@ class SwapCreate(CustormBaseModel):
             raise ValueError("Transaction ID must be 64 characters long")
         return v
 
+
 class MessageResponse(CustormBaseModel):
-    message: str = 'oke'
+    message: str = "oke"
+
 
 class SwapTransaction(CustormBaseModel):
-    transaction_id: str = ''
-    from_token: str = ''
+    transaction_id: str = ""
+    from_token: str = ""
     from_amount: float = 0.0
-    to_token: str = ''
+    to_token: str = ""
     to_amount: float = 0.0
     price: float = 0.0
     timestamp: int = 0
-    status: str = 'pending'
+    status: str = "pending"
 
     @field_validator("from_amount", "to_amount", "price")
     def round_value(cls, v: float) -> float:
         return round(v, 6)
+
 
 class SwapListResponse(CustormBaseModel):
     transactions: List[SwapTransaction] = []
@@ -174,8 +198,9 @@ class SwapListResponse(CustormBaseModel):
     page: int = 1
     limit: int = 20
 
+
 class Trader(CustormBaseModel):
-    user_id: str = ''
+    user_id: str = ""
     total_volume: float = 0.0
     total_trades: int = 0
     rank: int = 0
@@ -184,20 +209,23 @@ class Trader(CustormBaseModel):
     def round_value(cls, v: float) -> float:
         return round(v, 2)
 
+
 class TraderList(CustormBaseModel):
     total: int = 0
     page: int = 1
     traders: List[Trader] = []
 
+
 class TrendPair(CustormBaseModel):
     """Trend data for a single trading pair"""
-    pair: str = ''
+
+    pair: str = ""
     confidence: float = 0.0  # 0-100
     price: float = 0.0
     change_24h: float = 0.0
     volume_24h: float = 0.0
     market_cap: float = 0.0
-    logo_url: str = ''
+    logo_url: str = ""
 
     @field_validator("confidence")
     def round_confidence(cls, v: float) -> float:
@@ -207,8 +235,9 @@ class TrendPair(CustormBaseModel):
     def round_value(cls, v: float) -> float:
         return round(v, 6)
 
+
 class TrendResponse(CustormBaseModel):
     """Response containing all pairs grouped by trend"""
+
     uptrend: List[TrendPair] = Field(default_factory=list)
     downtrend: List[TrendPair] = Field(default_factory=list)
-        

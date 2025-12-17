@@ -1,3 +1,4 @@
+# note: not integrated yet
 """
 Cardano Wallet Authentication Utilities
 
@@ -25,10 +26,8 @@ from typing import Tuple
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-
 from pycardano import Address
 from pycardano.key import VerificationKey
-
 
 NONCE_NUM_BYTES = 32  # 32 bytes = 64 hex characters
 
@@ -36,13 +35,13 @@ NONCE_NUM_BYTES = 32  # 32 bytes = 64 hex characters
 def generate_nonce(num_bytes: int = NONCE_NUM_BYTES) -> str:
     """
     Generate a cryptographically secure random nonce for wallet authentication.
-    
+
     The nonce is a random hex string that the user must sign with their wallet
     to prove ownership. This prevents replay attacks.
-    
+
     Args:
         num_bytes: Number of random bytes to generate (default: 32 = 64 hex chars)
-    
+
     Returns:
         Hex-encoded random string (e.g., "a1b2c3d4...")
     """
@@ -64,7 +63,7 @@ def _decode_base64(value: str) -> bytes:
 def _decode_hex_or_base64(value: str) -> bytes:
     """
     Helper: Decode hex or base64 string to bytes.
-    
+
     Cardano wallets may send signatures/keys in either format, so we support both.
     """
     value = value.strip()
@@ -80,7 +79,7 @@ def _decode_hex_or_base64(value: str) -> bytes:
 def _message_from_nonce(nonce: str) -> bytes:
     """
     Helper: Convert nonce string to bytes for signature verification.
-    
+
     Tries to decode as hex first, falls back to UTF-8 encoding.
     """
     nonce = nonce.strip()
@@ -93,45 +92,47 @@ def _message_from_nonce(nonce: str) -> bytes:
 def _public_key_matches_address(address: str, public_key_bytes: bytes) -> bool:
     """
     Helper: Verify that the public key corresponds to the Cardano address.
-    
+
     This ensures the signature was created by the wallet that owns the address.
     Uses pycardano to decode the address and compare payment part hash with key hash.
-    
+
     Args:
         address: Cardano address string (e.g., "addr1...")
         public_key_bytes: ED25519 public key as bytes
-    
+
     Returns:
         True if public key matches address, False otherwise
     """
     try:
         addr = Address.decode(address)
         v_key = VerificationKey.from_primitive(public_key_bytes)
-        return addr.payment_part == v_key.hash()
+        return addr.payment_part == v_key.hash()  # type: ignore
     except Exception:
         return False
 
 
-def verify_signature(address: str, nonce: str, signature: str, public_key: str) -> Tuple[bool, str]:
+def verify_signature(
+    address: str, nonce: str, signature: str, public_key: str
+) -> Tuple[bool, str]:
     """
     Verify a Cardano wallet signature and return normalized address.
-    
+
     This is the main function called by /auth/verify endpoint. It performs three checks:
     1. Verifies the ED25519 signature is cryptographically valid
     2. Verifies the public key matches the provided Cardano address
     3. Normalizes the address to canonical format
-    
+
     Args:
         address: Cardano wallet address (e.g., "addr1...")
         nonce: The nonce string that was signed
         signature: ED25519 signature (hex or base64 encoded)
         public_key: ED25519 public key (hex or base64 encoded)
-    
+
     Returns:
         Tuple of (is_valid: bool, normalized_address: str)
         - If valid: (True, normalized_address)
         - If invalid: (False, "")
-    
+
     Example:
         is_valid, addr = verify_signature(
             address="addr1...",
@@ -149,7 +150,9 @@ def verify_signature(address: str, nonce: str, signature: str, public_key: str) 
 
     # Step 1: Verify ED25519 signature is cryptographically valid
     try:
-        Ed25519PublicKey.from_public_bytes(public_key_bytes).verify(signature_bytes, message_bytes)
+        Ed25519PublicKey.from_public_bytes(public_key_bytes).verify(
+            signature_bytes, message_bytes
+        )
     except InvalidSignature:
         return False, ""
 
@@ -164,4 +167,3 @@ def verify_signature(address: str, nonce: str, signature: str, public_key: str) 
         return False, ""
 
     return True, normalized_address
-

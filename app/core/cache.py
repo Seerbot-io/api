@@ -29,8 +29,8 @@ def seconds_until_next_interval(minutes: int, *, now: datetime | None = None) ->
     if minutes <= 0:
         raise ValueError("minutes must be positive")
 
-    start = (now or _utc_now())
-    current = start.replace(second=0)    
+    start = now or _utc_now()
+    current = start.replace(second=0)
     next_minute = (current.minute // minutes + 1) * minutes
     if next_minute >= 60:
         next_minute -= 60
@@ -48,7 +48,7 @@ def seconds_until_hour_minute(minute_mark: int, *, now: datetime | None = None) 
     if minute_mark < 0 or minute_mark >= 60:
         raise ValueError("minute_mark must be within [0, 59]")
 
-    current = (now or _utc_now())
+    current = now or _utc_now()
     boundary = current.replace(minute=minute_mark, second=0)
     if current.minute >= minute_mark:
         boundary += timedelta(hours=1)
@@ -72,32 +72,32 @@ def _dynamic_ttl(func: Callable[[], int]) -> CacheTTLFactory:
 
 
 CACHE_TYPE: Dict[str, Dict[str, CacheTTLFactory]] = {
-    'no-exp': {
-        'ttl_factory': lambda: None,
+    "no-exp": {
+        "ttl_factory": lambda: None,
     },
-    'in-1m': {
-        'ttl_factory': _static_ttl(60),
+    "in-1m": {
+        "ttl_factory": _static_ttl(60),
     },
-    'in-5m': {
-        'ttl_factory': _static_ttl(300),
+    "in-5m": {
+        "ttl_factory": _static_ttl(300),
     },
-    'in-30m': {
-        'ttl_factory': _static_ttl(1800),
+    "in-30m": {
+        "ttl_factory": _static_ttl(1800),
     },
-    'in-1h': {
-        'ttl_factory': _static_ttl(3600),
+    "in-1h": {
+        "ttl_factory": _static_ttl(3600),
     },
-    'at-eh-m5': {
-        'ttl_factory': _dynamic_ttl(lambda: seconds_until_hour_minute(5)),
+    "at-eh-m5": {
+        "ttl_factory": _dynamic_ttl(lambda: seconds_until_hour_minute(5)),
     },
-    'at-eh-m10': {
-        'ttl_factory': _dynamic_ttl(lambda: seconds_until_hour_minute(10)),
+    "at-eh-m10": {
+        "ttl_factory": _dynamic_ttl(lambda: seconds_until_hour_minute(10)),
     },
-    'at-e5m': {
-        'ttl_factory': _dynamic_ttl(lambda: seconds_until_next_interval(5)),
+    "at-e5m": {
+        "ttl_factory": _dynamic_ttl(lambda: seconds_until_next_interval(5)),
     },
-    'at-e30m': {
-        'ttl_factory': _dynamic_ttl(lambda: seconds_until_next_interval(30)),
+    "at-e30m": {
+        "ttl_factory": _dynamic_ttl(lambda: seconds_until_next_interval(30)),
     },
 }
 
@@ -108,7 +108,7 @@ def resolve_cache_ttl(cache_type: str) -> Optional[int]:
     if not config:
         return None
 
-    ttl_factory = config['ttl_factory']
+    ttl_factory = config["ttl_factory"]
     ttl = ttl_factory()
     if ttl is None:
         return None
@@ -118,10 +118,10 @@ def resolve_cache_ttl(cache_type: str) -> Optional[int]:
 
 class HybridCacheManager:
     """Hybrid cache manager with Redis + in-memory fallback"""
-    
-    _instance: Optional['HybridCacheManager'] = None
+
+    _instance: Optional["HybridCacheManager"] = None
     _lock = Lock()
-    
+
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
@@ -129,9 +129,9 @@ class HybridCacheManager:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
-        if hasattr(self, '_initialized') and self._initialized:
+        if hasattr(self, "_initialized") and self._initialized:
             return
         if settings.REDIS_HOST is None or settings.REDIS_HOST.strip() == "":
             self.pool = None
@@ -149,7 +149,7 @@ class HybridCacheManager:
             socket_timeout=5,
             retry_on_timeout=False,
             max_connections=settings.REDIS_MAX_CONNECTIONS,
-            connection_class=SSLConnection if settings.REDIS_SSL else Connection
+            connection_class=SSLConnection if settings.REDIS_SSL else Connection,
         )
         self.redis_available = False
         self.memory_cache: Dict[str, Tuple[bytes, Optional[float]]] = {}
@@ -157,13 +157,13 @@ class HybridCacheManager:
         self._memory_lock = Lock()
         self._last_redis_check: Optional[float] = None
         self._initialized = True
-    
+
     def redis_connect(self) -> Optional[Redis]:
         """Connect to Redis, with 30-minute cooldown when unavailable"""
         # If Redis is not configured, skip
         if self.pool is None:
             return None
-        
+
         # If Redis was available, try immediately
         if self.redis_available:
             try:
@@ -177,14 +177,14 @@ class HybridCacheManager:
                 self.redis_available = False
                 self._last_redis_check = time.time()
             return None
-        
+
         # If Redis is unavailable, only check every 30 minutes
         now = time.time()
         if self._last_redis_check is not None:
             time_since_check = now - self._last_redis_check
             if time_since_check < settings.REDIS_RECHECK_INTERVAL:
                 return None
-        
+
         # Time to recheck Redis connection
         self._last_redis_check = now
         try:
@@ -194,9 +194,9 @@ class HybridCacheManager:
                 return rc
         except Exception:
             pass
-        
+
         return None
-    
+
     def get(self, key: str) -> Optional[Any]:
         """Get cached value, deserializing from JSON"""
         # Try Redis first
@@ -206,7 +206,7 @@ class HybridCacheManager:
                 return json.loads(result)
             except json.JSONDecodeError:
                 return None
-        
+
         # Fallback to memory
         result = self._get_memory(key)
         if result is not None:
@@ -215,25 +215,25 @@ class HybridCacheManager:
             except json.JSONDecodeError:
                 return None
         return None
-    
-    def set(self, key: str, value: Any, cache_type: str = 'in-5m') -> bool:
+
+    def set(self, key: str, value: Any, cache_type: str = "in-5m") -> bool:
         """Set cached value, serializing to JSON"""
         try:
-            data = json.dumps(value, default=str).encode('utf-8')
+            data = json.dumps(value, default=str).encode("utf-8")
         except (TypeError, ValueError) as e:
             print(f"Failed to serialize cache value: {e}")
             return False
-        
+
         ttl_seconds = resolve_cache_ttl(cache_type)
-        
+
         # Try Redis first
         if self._set_redis(key, data, ttl_seconds):
             return True
-        
+
         # Fallback to memory
         self._set_memory(key, data, ttl_seconds)
         return True
-    
+
     def _set_redis(self, key: str, data: bytes, ttl_seconds: Optional[int]) -> bool:
         rc = self.redis_connect()
         if rc is None:
@@ -247,42 +247,45 @@ class HybridCacheManager:
             return False
         finally:
             rc.close()
-    
+
     def _get_redis(self, key: str) -> Optional[bytes]:
         rc = self.redis_connect()
         if rc is None:
             return None
         try:
             result = rc.get(key)
-            if result is not None and result != b'':
-                return result
+            if result is not None and result != b"":
+                return result  # type: ignore
             return None
         except Exception:
             return None
         finally:
             rc.close()
-    
+
     def _set_memory(self, key: str, data: bytes, ttl_seconds: Optional[int]) -> None:
         """Set memory cache with 4GB size limit using LRU eviction"""
         expires_at = None if ttl_seconds is None else time.time() + ttl_seconds
         data_size = len(data)
-        
+
         with self._memory_lock:
             # Remove existing entry if updating
             if key in self.memory_cache:
                 old_data, _ = self.memory_cache[key]
                 self._memory_cache_size -= len(old_data)
-            
+
             # Check if we need to evict entries to make space
-            while (self._memory_cache_size + data_size > settings.MEMORY_CACHE_MAX_SIZE and 
-                   self.memory_cache):
+            while (
+                self._memory_cache_size + data_size > settings.MEMORY_CACHE_MAX_SIZE
+                and self.memory_cache
+            ):
                 # Evict oldest expired entries first
                 now = time.time()
                 expired_keys = [
-                    k for k, (_, exp) in self.memory_cache.items()
+                    k
+                    for k, (_, exp) in self.memory_cache.items()
                     if exp is not None and exp <= now
                 ]
-                
+
                 if expired_keys:
                     # Remove expired entries
                     for k in expired_keys:
@@ -293,15 +296,15 @@ class HybridCacheManager:
                     # (or entry with no expiration if all have expiration)
                     oldest_key = min(
                         self.memory_cache.keys(),
-                        key=lambda k: self.memory_cache[k][1] or float('inf')
+                        key=lambda k: self.memory_cache[k][1] or float("inf"),
                     )
                     old_data, _ = self.memory_cache.pop(oldest_key)
                     self._memory_cache_size -= len(old_data)
-            
+
             # Add new entry
             self.memory_cache[key] = (data, expires_at)
             self._memory_cache_size += data_size
-    
+
     def _get_memory(self, key: str) -> Optional[bytes]:
         """Get from memory cache, removing expired entries"""
         now = time.time()
@@ -325,7 +328,7 @@ def _make_cache_key(func_name: str, args: tuple, kwargs: dict) -> str:
     """Generate cache key from function name and arguments"""
     # Convert args and kwargs to a stable string representation
     key_parts = [func_name]
-    
+
     # Add args (skip 'self' and 'cls')
     for arg in args:
         if isinstance(arg, (str, int, float, bool, type(None))):
@@ -333,35 +336,38 @@ def _make_cache_key(func_name: str, args: tuple, kwargs: dict) -> str:
         else:
             # For complex objects, use their string representation
             key_parts.append(str(hash(str(arg))))
-    
+
     # Add kwargs (sorted for consistency)
     for k, v in sorted(kwargs.items()):
         if isinstance(v, (str, int, float, bool, type(None))):
             key_parts.append(f"{k}:{v}")
         else:
             key_parts.append(f"{k}:{hash(str(v))}")
-    
+
     key_str = "|".join(key_parts)
     # Hash for shorter keys
     return f"cache:{hashlib.md5(key_str.encode()).hexdigest()}"
 
 
-def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None, value_type: Any = None):
+def cache(
+    cache_type: str = "in-5m", key_prefix: Optional[str] = None, value_type: Any = None
+):
     """
     Decorator for caching function results with hybrid Redis + memory fallback.
-    
+
     Args:
         cache_type: Cache type from CACHE_TYPE (e.g., 'at-e5m', 'in-5m', 'in-1h')
         key_prefix: Optional prefix for cache key (defaults to function name)
-    
+
     Example:
         @cache('at-e5m')
         def get_predictions():
             return expensive_operation()
     """
+
     def decorator(func: Callable) -> Callable:
         func_name = key_prefix or f"{func.__module__}.{func.__name__}"
-        
+
         def _serialize_value(value: Any) -> Any:
             """Convert value to JSON-serializable data."""
             if hasattr(value, "model_dump"):
@@ -371,10 +377,7 @@ def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None, value_typ
             if isinstance(value, tuple):
                 return [_serialize_value(item) for item in value]
             if isinstance(value, dict):
-                return {
-                    key: _serialize_value(val)
-                    for key, val in value.items()
-                }
+                return {key: _serialize_value(val) for key, val in value.items()}
             return value
 
         def _deserialize_single(target: Any, data: Any) -> Any:
@@ -409,42 +412,42 @@ def cache(cache_type: str = 'in-5m', key_prefix: Optional[str] = None, value_typ
         async def async_wrapper(*args, **kwargs):
             # Generate cache key
             cache_key = _make_cache_key(func_name, args, kwargs)
-            
+
             # Try to get from cache
             cached = cache_manager.get(cache_key)
             if cached is not None:
                 return _deserialize_value(cached)
-            
+
             # Execute function
             result = await func(*args, **kwargs)
-            
+
             # Store in cache
             cache_manager.set(cache_key, _serialize_value(result), cache_type)
-            
+
             return result
-        
+
         @wraps(func)
         def sync_wrapper(*args, **kwargs):
             # Generate cache key
             cache_key = _make_cache_key(func_name, args, kwargs)
-            
+
             # Try to get from cache
             cached = cache_manager.get(cache_key)
             if cached is not None:
                 return _deserialize_value(cached)
-            
+
             # Execute function
             result = func(*args, **kwargs)
-            
+
             # Store in cache
             cache_manager.set(cache_key, _serialize_value(result), cache_type)
-            
+
             return result
-        
+
         # Return appropriate wrapper based on function type
         if inspect.iscoroutinefunction(func):
             return async_wrapper
         else:
             return sync_wrapper
-    
+
     return decorator

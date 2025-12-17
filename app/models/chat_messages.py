@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Text, DateTime, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.sql import func, text
+from sqlalchemy import Column, DateTime, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.sql import func
+
 from app.db.base import Base
 
 
@@ -16,13 +17,17 @@ class ChatMessage(Base):
         "tool_invocations": {"tool": "search", "args": {...}}
     }
     """
+
     __tablename__ = "chat_messages"
     __table_args__ = {"schema": "chatbot"}
 
     id = Column(Text, primary_key=True)
-    user_id = Column(UUID(as_uuid=False), ForeignKey("chatbot.users.id"), nullable=False, index=True)
+    user_id = Column(
+        UUID(as_uuid=False), ForeignKey("chatbot.users.id"), nullable=False, index=True
+    )
     content = Column(Text, nullable=False)
     role = Column(Text, nullable=False)  # 'user', 'assistant', 'system', 'tool'
     tool_invocations = Column(JSONB, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

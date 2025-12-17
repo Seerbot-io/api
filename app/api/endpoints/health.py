@@ -1,16 +1,20 @@
-from app.core.router_decorated import APIRouter
 from fastapi import status
+
+from app.core.router_decorated import APIRouter
 from app.schemas.my_base_model import CustormBaseModel
-from typing import List
 
 router = APIRouter()
-# REQUIREMENTS FOR MODEL DEFINITION 
+
+
+# REQUIREMENTS FOR MODEL DEFINITION
 # - Have all the fields needed
 # - fields must have explicit types
-# - fields must have default values 
+# - fields must have default values
 class HealthCheck(CustormBaseModel):
     """Response model to validate and return when performing a health check."""
-    status: str = "oke" 
+
+    status: str = "oke"
+
 
 @router.get(
     "/health",
@@ -32,5 +36,3 @@ async def get_health() -> HealthCheck:
     """
 
     return HealthCheck(status="oke")
-
-

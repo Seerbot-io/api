@@ -1,19 +1,19 @@
-import os
-
 from dotenv import load_dotenv
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv(override=True)
 
+
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
     PROJECT_NAME: str = "SeerBot"
     # Application settings
-    PORT: int | None 
-    HOST: str | None
-    STATIC_FOLDER: str | None
-    VERSION: str | None
-    DOC_PASSWORD: str | None
-    SESSION_SECRET_KEY: str | None
+    PORT: int
+    HOST: str
+    STATIC_FOLDER: str
+    VERSION: str
+    DOC_PASSWORD: str
+    SESSION_SECRET_KEY: str
 
     # SSL settings
     SSL_KEY: str | None
@@ -29,12 +29,11 @@ class Settings(BaseSettings):
     SCHEMA_4: str | None
     SCHEMA_5: str | None
 
-
     # Login configuration
     ENCODE_KEY: str | None
     ENCODE_ALGORITHM: str | None = "HS256"
-    ACCESS_TOKEN_EXPIRE_SECONDS: int | None = 1800 # 30 minutes
-    NONCE_EXPIRY_SECONDS: int | None = 300 # 5 minutes
+    ACCESS_TOKEN_EXPIRE_SECONDS: int | None = 1800  # 30 minutes
+    NONCE_EXPIRY_SECONDS: int | None = 300  # 5 minutes
 
     # Redis settings
     REDIS_HOST: str | None
@@ -44,7 +43,7 @@ class Settings(BaseSettings):
     # Memory cache settings
     MEMORY_CACHE_MAX_SIZE: int = 4 * 1024 * 1024 * 1024  # 4GB in bytes
     REDIS_RECHECK_INTERVAL: int = 30 * 60  # 30 minutes in seconds
-    
+
     # Debug settings
     DEBUG: bool = False
 
@@ -52,10 +51,8 @@ class Settings(BaseSettings):
     GPT_KEY: str | None
 
     # BLOCKFROST
-    BLOCKFROST_API_KEY: str | None
-     
-    class Config:
-        env_file = ".env"
+    BLOCKFROST_API_KEY: str
+
 
 # Instantiate the settings
-settings = Settings()
+settings = Settings()  # type: ignore

@@ -15,16 +15,19 @@ Flow:
 5. Returns wallet_address to the route handler
 """
 
-from fastapi import Header, HTTPException, status, Depends
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
+
 from app.core.jwt_utils import verify_token
 from app.db.session import get_db
 from app.models.users import User
 
 
-def _extract_token(authorization: Optional[str]) -> str:
+def _extract_token(authorization: Optional[str]) -> Dict[str, Any]:
     """
     Extract JWT token from Authorization header.
     Supports both "Bearer <token>" and plain token formats.
@@ -36,7 +39,10 @@ def _extract_token(authorization: Optional[str]) -> str:
         HTTPException 401: If Authorization header is missing or invalid
     """
     if not authorization:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authorization header missing")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header missing",
+        )
 
     authorization = authorization.strip()
     if authorization.lower().startswith("bearer "):
@@ -44,12 +50,17 @@ def _extract_token(authorization: Optional[str]) -> str:
     else:
         token = authorization
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization header")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header",
+        )
 
     return verify_token(token)
 
 
-def get_current_user(authorization: Optional[str] = Header(None, alias="Authorization")) -> str:
+def get_current_user(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> str:
     """
     returning wallet address.
     """
@@ -58,8 +69,7 @@ def get_current_user(authorization: Optional[str] = Header(None, alias="Authoriz
 
 
 def get_current_user_id(
-    wallet_address: str = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    wallet_address: str = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> str:
     """
     Get user_id (UUID) from users table based on wallet_address.
@@ -69,21 +79,18 @@ def get_current_user_id(
     """
     # Query for existing user
     user = db.query(User).filter(User.wallet_address == wallet_address).first()
-    
+
+    now = datetime.now(timezone.utc)
     if not user:
         # Create new user if doesn't exist
-        user = User(
-            wallet_address=wallet_address,
-            last_active_at=func.now()
-        )
+        user = User(wallet_address=wallet_address, last_active_at=now)
         db.add(user)
         db.flush()  # Flush to get the ID without committing
         db.refresh(user)
     else:
         # Update last_active_at for existing user
-        user.last_active_at = func.now()
-    
-    db.commit()
-    
-    return str(user.id)
+        user.last_active_at = now  # type: ignore
 
+    db.commit()
+
+    return str(user.id)

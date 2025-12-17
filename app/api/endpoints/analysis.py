@@ -1,50 +1,55 @@
 import asyncio
-from datetime import datetime
 import json
-from app.core.config import settings
-import app.schemas.analysis as schemas
-from app.core.router_decorated import APIRouter
-from app.core.cache import cache
-from fastapi import Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
-from sqlalchemy.orm import Session
-from sqlalchemy import text, or_
+from datetime import datetime
 from typing import List, Optional
-from app.db.session import get_db, get_tables, SessionLocal
-from app.models.tokens import Token
+
+from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
+from sqlalchemy import or_, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+import app.schemas.analysis as schemas
+from app.core.cache import cache
+from app.core.config import settings
+from app.core.router_decorated import APIRouter
+from app.db.session import SessionLocal, get_db, get_tables
 from app.models.pools import Pool
 from app.models.swaps import Swap
-from app.core.dependencies import get_current_user
+from app.models.tokens import Token
 from app.services.onchain_process import extract_swap_info
-from sqlalchemy.exc import IntegrityError
+
+from typing import cast
+from enum import Enum
 
 router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)
-group_tags=["Analysis"]
+group_tags: List[str | Enum] = ["Analysis"]
 
 # Map timeframes to table keys (same as in analysis.py)
 TIMEFRAME_MAP = {
-    '5m': 'f5m',
-    '30m': 'f30m',
-    '1h': 'f1h',
-    '4h': 'f4h',
-    '1d': 'f1d',
+    "5m": "f5m",
+    "30m": "f30m",
+    "1h": "f1h",
+    "4h": "f4h",
+    "1d": "f1d",
 }
 
 # Supported resolutions for TradingView
-SUPPORTED_RESOLUTIONS = ['5m', '30m', '1h', '4h', '1d']
+SUPPORTED_RESOLUTIONS = ["5m", "30m", "1h", "4h", "1d"]
 
 # Get timeframe duration in seconds
 TIMEFRAME_DURATION_MAP = {
-    '5m': 300,
-    '30m': 1800,
-    '1h': 3600,
-    '4h': 14400,
-    '1d': 86400,
+    "5m": 300,
+    "30m": 1800,
+    "1h": 3600,
+    "4h": 14400,
+    "1d": 86400,
 }
 
 TOKEN_LIST = {}
 
-def _get_token_id(token: str) -> str:
+
+def _get_token_id(token: str) -> str | None:
     global TOKEN_LIST
     if token not in TOKEN_LIST or TOKEN_LIST is None or len(TOKEN_LIST.items()) == 0:
         db = SessionLocal()
@@ -54,29 +59,28 @@ def _get_token_id(token: str) -> str:
 
     return TOKEN_LIST.get(token, None)
 
+
 # [not used]
-@router.get("/indicators", 
-            tags=group_tags,
-            response_model=schemas.IndicatorsResponse)
-@cache('in-1m')
+@router.get("/indicators", tags=group_tags, response_model=schemas.IndicatorsResponse)
+@cache("in-1m")
 def get_indicators(
     pair: str,
     timeframe: str,
     limit: int = 100,
-    from_time: int = None,
-    to_time: int = None,
+    from_time: int | None = None,
+    to_time: int | None = None,
     indicators: str = "rsi7,rsi14,adx14,psar",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> schemas.IndicatorsResponse:
     """Retrieves OHLC (Open, High, Low, Close) candlestick data and technical indicators (RSI7, RSI14, ADX14, PSAR) for a given trading pair.
-    
+
     - pair: Trading pair joined by underscore "_" (e.g., 'USDM_ADA')
     - timeframe: Time interval ('1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w')
     - limit: Number of candles to return (default: 100, max: 1000)
     - from_time: Start timestamp in seconds (optional)
     - to_time: End timestamp in seconds (optional)
     - indicators: Comma-separated list of indicators to include (default: 'rsi7,rsi14,adx14,psar')
-    
+
     OUTPUT:
     - pair: Trading pair
     - timeframe: Time interval
@@ -84,37 +88,46 @@ def get_indicators(
     """
     # Convert pair from USDM_ADA to USDMADA
     symbol = pair.strip().replace("_", "/")
-        
+
     timeframe_lower = timeframe.strip().lower()
     if timeframe_lower not in TIMEFRAME_MAP:
-        raise HTTPException(status_code=400, detail=f"Invalid timeframe: {timeframe}. Valid values: 5m, 30m, 1h, 4h, 1d")
-    
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid timeframe: {timeframe}. Valid values: 5m, 30m, 1h, 4h, 1d",
+        )
+
     table_key = TIMEFRAME_MAP[timeframe_lower]
     if table_key not in tables:
-        raise HTTPException(status_code=400, detail=f"Table not found for timeframe: {timeframe}")
-    
+        raise HTTPException(
+            status_code=400, detail=f"Table not found for timeframe: {timeframe}"
+        )
+
     f_table = tables[table_key]
-    
+
     # Validate limit
     if limit < 1:
         limit = 100
     if limit > 1000:
         limit = 1000
-    
+
     # Build time conditions
     time_conditions = []
     if from_time is not None:
         time_conditions.append(f"open_time >= {from_time}")
     if to_time is not None:
         time_conditions.append(f"open_time <= {to_time}")
-    
+
     time_cond = ""
     if time_conditions:
         time_cond = " and " + " and ".join(time_conditions)
-    
+
     # Parse indicators (default to all if not specified)
-    indicator_list = [ind.strip().lower() for ind in indicators.split(",")] if indicators else ["rsi7", "rsi14", "adx14", "psar"]
-    
+    indicator_list = (
+        [ind.strip().lower() for ind in indicators.split(",")]
+        if indicators
+        else ["rsi7", "rsi14", "adx14", "psar"]
+    )
+
     # Build SELECT clause for indicators
     indicator_selects = []
     if "rsi7" in indicator_list:
@@ -133,9 +146,9 @@ def get_indicators(
         indicator_selects.append("psar")
     else:
         indicator_selects.append("0 as psar")
-    
+
     indicator_select_str = ", " + ", ".join(indicator_selects)
-    
+
     # Build query
     limit_str = f" LIMIT {limit}" if limit > 0 else ""
     timeframe_duration = TIMEFRAME_DURATION_MAP.get(timeframe_lower, 3600)
@@ -157,12 +170,12 @@ def get_indicators(
         ORDER BY open_time DESC
         {limit_str}
     """
-    
+
     result = db.execute(text(query)).fetchall()
-    
+
     if not result or len(result) <= 0:
         raise HTTPException(status_code=404, detail="No data found")
-    
+
     # Convert to response format (reverse order to get chronological)
     data = [
         schemas.IndicatorData(
@@ -175,37 +188,33 @@ def get_indicators(
             rsi7=float(row.rsi7) if row.rsi7 is not None else 0.0,
             rsi14=float(row.rsi14) if row.rsi14 is not None else 0.0,
             adx14=float(row.adx14) if row.adx14 is not None else 0.0,
-            psar=float(row.psar) if row.psar is not None else 0.0
+            psar=float(row.psar) if row.psar is not None else 0.0,
         )
         for row in reversed(result)  # Reverse to get chronological order
     ]
-    
+
     # Format pair for response (USDM_ADA -> USDM/ADA)
     response_pair = pair.strip().replace("_", "/").upper()
-    
+
     return schemas.IndicatorsResponse(
-        pair=response_pair,
-        timeframe=timeframe_lower,
-        data=data
+        pair=response_pair, timeframe=timeframe_lower, data=data
     )
 
 
-@router.get("/tokens",
-            tags=group_tags,
-            response_model=schemas.TokenList)
-@cache('in-1m')
+@router.get("/tokens", tags=group_tags, response_model=schemas.TokenList)
+@cache("in-1m")
 def get_tokens(
     query: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> schemas.TokenList:
     """Search or list available tokens
-    
+
     - query: query keyword to filter tokens by name or symbol (optional)
     - limit: Maximum number of records to return (optional)
     - offset: Number of records to skip (optional)
-    
+
     OUTPUT: List of tokens with:
     - id: Onchain address
     - name: Token name
@@ -214,15 +223,12 @@ def get_tokens(
     """
     # Build query
     query_obj = db.query(Token)
-    
+
     # Apply query filter if provided
     if query:
         query_term = f"%{query.strip()}%"
         query_obj = query_obj.filter(
-            or_(
-                Token.name.ilike(query_term),
-                Token.symbol.ilike(query_term)
-            )
+            or_(Token.name.ilike(query_term), Token.symbol.ilike(query_term))
         )
     # Execute query
     tokens = query_obj.all()
@@ -236,22 +242,23 @@ def get_tokens(
         page_size = n - offset
     token_data = [
         schemas.Token(
-        id=token.id if token.id else '',
-        name=token.name if token.name else '',
-        symbol=token.symbol if token.symbol else '',
-        logo_url=token.logo_url if token.logo_url else ''
+            id=str(token.id) if token.id is not None else "",
+            name=str(token.name) if token.name is not None else "",
+            symbol=str(token.symbol) if token.symbol is not None else "",
+            logo_url=str(token.logo_url) if token.logo_url is not None else "",
         )
-    for token in tokens[offset:offset+page_size]]
+        for token in tokens[offset : offset + page_size]
+    ]
     # Convert to response format
     return schemas.TokenList(total=n, page=page, tokens=token_data)
 
 
-@cache('in-1m')
+@cache("in-1m")
 def _get_token_info_data(symbol: str) -> dict:
-    time_now = (int(datetime.now().timestamp()) // 300 - 1) *300
+    time_now = (int(datetime.now().timestamp()) // 300 - 1) * 300
     time_24h_ago = time_now - 24 * 60 * 60
-    if symbol == 'ADA':
-        symbol = 'USDM'
+    if symbol == "ADA":
+        symbol = "USDM"
         query = f"""  
         select a.*, c.price, c.change_24h 
         ,d.low_24h low_24h, d.high_24h high_24h, d.volume_24h volume_24h, c.price * a.total_supply as market_cap
@@ -321,7 +328,7 @@ def _get_token_info_data(symbol: str) -> dict:
         db.close()
     if token is None or not token:
         raise HTTPException(status_code=404, detail="Token not found")
-    return {    
+    return {
         "id": token.id,
         "name": token.name,
         "symbol": token.symbol,
@@ -331,19 +338,17 @@ def _get_token_info_data(symbol: str) -> dict:
         "low_24h": token.low_24h,
         "high_24h": token.high_24h,
         "volume_24h": token.volume_24h,
-        "market_cap": token.market_cap
+        "market_cap": token.market_cap,
     }
 
 
-@router.get("/tokens/{symbol}",
-            tags=group_tags,
-            response_model=schemas.TokenMarketInfo)
-@cache('in-1m')
+@router.get("/tokens/{symbol}", tags=group_tags, response_model=schemas.TokenMarketInfo)
+@cache("in-1m")
 def get_token_info(
     symbol: str,
 ) -> schemas.TokenMarketInfo:
     """Get token Market info
-    
+
     - symbol: Token symbol (e.g., 'USDM')
     OUTPUT: Token market information with:
     - id: Onchain address
@@ -362,15 +367,13 @@ def get_token_info(
     return schemas.TokenMarketInfo(**token_data)
 
 
-@router.post("/swaps",
-            tags=group_tags,
-            response_model=schemas.MessageResponse)
+@router.post("/swaps", tags=group_tags, response_model=schemas.MessageResponse)
 def create_swap(
     form: schemas.SwapCreate,
     db: Session = Depends(get_db),
     # user_id: str = Depends(get_current_user)
 ) -> schemas.MessageResponse:
-    """Create a new swap transaction record.    
+    """Create a new swap transaction record.
     - headers: Request headers containing:
         - Content-Type: application/json
     - body: Request body containing:
@@ -388,7 +391,10 @@ def create_swap(
     except Exception as e:
         print(e)
         raise HTTPException(status_code=400, detail="failed to extract swap info")
-    swap_info["extend_data"] = {"order_tx_id": form.order_tx_id, "execution_tx_id": swap_info["transaction_id"]}
+    swap_info["extend_data"] = {
+        "order_tx_id": form.order_tx_id,
+        "execution_tx_id": swap_info["transaction_id"],
+    }
     try:
         row = Swap(
             transaction_id=swap_info["transaction_id"],
@@ -401,9 +407,9 @@ def create_swap(
             value=swap_info["value"],
             timestamp=swap_info["timestamp"],
             fee=swap_info["fee"],
-            fee_price = swap_info["fee_price"],
+            fee_price=swap_info["fee_price"],
             extend_data=json.dumps(swap_info["extend_data"]),
-            status="completed"
+            status="completed",
         )
         db.add(row)
         db.commit()
@@ -413,15 +419,11 @@ def create_swap(
             raise HTTPException(status_code=400, detail="transaction already exists")
         raise HTTPException(status_code=400, detail="failed to add swap to database")
 
-    return schemas.MessageResponse(
-        message="oke"
-    )
+    return schemas.MessageResponse(message="oke")
 
 
-@router.get("/swaps",
-            tags=group_tags,
-            response_model=schemas.SwapListResponse)
-@cache('in-1m')
+@router.get("/swaps", tags=group_tags, response_model=schemas.SwapListResponse)
+@cache("in-1m")
 def get_swaps(
     page: int = 1,
     limit: int = 20,
@@ -430,10 +432,10 @@ def get_swaps(
     from_time: Optional[int] = None,
     to_time: Optional[int] = None,
     user_id: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> schemas.SwapListResponse:
     """Retrieves all swap transactions with pagination and filters.
-    
+
     - page: Page number (default: 1)
     - limit: Number of records per page (default: 20, max: 100)
     - from_token: Filter by source token (optional)
@@ -441,7 +443,7 @@ def get_swaps(
     - from_time: Start timestamp filter in seconds (optional)
     - to_time: End timestamp filter in seconds (optional)
     - user_id: Filter by user ID (optional)
-    
+
     OUTPUT:
     - transactions: Array of transaction objects
     - total: Total number of transactions
@@ -452,10 +454,10 @@ def get_swaps(
     page = max(1, page)
     limit = max(1, min(100, limit))
     offset = (page - 1) * limit
-    
+
     # Build query
     query = db.query(Swap)
-    
+
     # Apply filters
     if from_token:
         query = query.filter(Swap.from_token.ilike(f"%{from_token.strip()}%"))
@@ -468,64 +470,62 @@ def get_swaps(
     if user_id:
         # Filter by user_id (wallet address) when user_id is provided
         query = query.filter(Swap.user_id == user_id)
-    
+
     # Get total count
     total = query.count()
-    
+
     # Apply pagination and ordering
     swaps = query.order_by(Swap.timestamp.desc()).offset(offset).limit(limit).all()
-    
+
     # Convert to response format
     transactions = [
         schemas.SwapTransaction(
-            transaction_id=swap.transaction_id,
-            from_token=swap.from_token,
-            from_amount=swap.from_amount,
-            to_token=swap.to_token,
-            to_amount=swap.to_amount,
-            price=swap.price,
-            timestamp=swap.timestamp,
-            status=swap.status
+            transaction_id=str(swap.transaction_id),
+            from_token=str(swap.from_token),
+            from_amount=float(swap.from_amount),  # type: ignore
+            to_token=str(swap.to_token),
+            to_amount=float(swap.to_amount),  # type: ignore
+            price=float(swap.price),  # type: ignore
+            timestamp=int(swap.timestamp),  # type: ignore
+            status=str(swap.status),
         )
         for swap in swaps
     ]
-    
+
     return schemas.SwapListResponse(
-        transactions=transactions,
-        total=total,
-        page=page,
-        limit=limit
+        transactions=transactions, total=total, page=page, limit=limit
     )
 
 
-
 # @cache('in-5m')
-def _fetch_top_traders_data(limit: int, offset: int, metric: str, period: str, pair: Optional[str]) -> List[dict]:
+def _fetch_top_traders_data(
+    limit: int | None, offset: int | None, metric: str, period: str, pair: Optional[str]
+) -> List[dict]:
     """Core logic for retrieving top trader stats."""
 
     metric_lower = metric.strip().lower()
-    valid_metrics = ['volume', 'trades']
+    valid_metrics = ["volume", "trades"]
     if metric_lower not in valid_metrics:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid metric: {metric}. Valid values: {', '.join(valid_metrics)}"
+            detail=f"Invalid metric: {metric}. Valid values: {', '.join(valid_metrics)}",
         )
-    metric_lower = 'total_' + metric_lower
+    metric_lower = "total_" + metric_lower
 
     period_lower = period.strip().lower()
-    valid_periods = ['24h', '7d', '30d', 'all']
+    valid_periods = ["24h", "7d", "30d", "all"]
     if period_lower not in valid_periods:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid period: {period}. Valid values: {', '.join(valid_periods)}"
+            detail=f"Invalid period: {period}. Valid values: {', '.join(valid_periods)}",
         )
 
     current_time = int(datetime.now().timestamp())
     time_filters = {
-        '24h': current_time - 24 * 60 * 60,
-        '7d': current_time - 7 * 24 * 60 * 60,
-        '30d': current_time - 30 * 24 * 60 * 60,
-        'all': None
+        "24h": current_time - 24 * 60 * 60,
+        "7d": current_time - 7 * 24 * 60 * 60,
+        "30d": current_time - 30 * 24 * 60 * 60,
+        "all": None,
     }
     time_threshold = time_filters.get(period_lower)
 
@@ -534,7 +534,7 @@ def _fetch_top_traders_data(limit: int, offset: int, metric: str, period: str, p
         where_conditions.append(f"timestamp >= {time_threshold}")
 
     if pair:
-        token1, token2 = token1, token2 = pair.split('_', 1)
+        token1, token2 = token1, token2 = pair.split("_", 1)
         where_conditions.append(
             f"from_token in ('{token1}', '{token2}') "
             f"AND to_token in ('{token1}', '{token2}')"
@@ -570,24 +570,32 @@ def _fetch_top_traders_data(limit: int, offset: int, metric: str, period: str, p
     for idx, row in enumerate(results, start=1):
         traders.append(
             {
-                "user_id": row.user_id or '',
+                "user_id": row.user_id or "",
                 "total_volume": float(row.total_volume) if row.total_volume else 0.0,
                 "total_trades": int(row.total_trades) if row.total_trades else 0,
                 "rank": idx,
                 "period": period_lower,
-                "timestamp": current_time
+                "timestamp": current_time,
             }
         )
     return traders
 
 
 @router.get("/toptraders", tags=group_tags, response_model=schemas.TraderList)
-@cache('in-5m')
-def get_top_traders(page: int = 1, page_size: int = 20, metric: str = 'volume', period: str = 'all', pair: Optional[str] = None) -> schemas.TraderList:
+@cache("in-5m")
+def get_top_traders(
+    page: int = 1,
+    page_size: int = 20,
+    metric: str = "volume",
+    period: str = "all",
+    pair: Optional[str] = None,
+) -> schemas.TraderList:
     """Retrieves a list of top traders based on trading volume or number of trades."""
-    raw_traders = _fetch_top_traders_data(limit=None, offset=None, metric=metric, period=period, pair=pair)  
+    raw_traders = _fetch_top_traders_data(
+        limit=None, offset=None, metric=metric, period=period, pair=pair
+    )
     n = len(raw_traders)
-    
+
     if n == 0:
         return schemas.TraderList(traders=[], total=0, page=1)
     offset = (page - 1) * page_size
@@ -595,24 +603,26 @@ def get_top_traders(page: int = 1, page_size: int = 20, metric: str = 'volume', 
         offset = n
     if offset + page_size > n:
         page_size = n - offset
-    traders = [schemas.Trader(**trader) for trader in raw_traders[offset:offset+page_size]]
+    traders = [
+        schemas.Trader(**trader) for trader in raw_traders[offset : offset + page_size]
+    ]
     trader_list = schemas.TraderList(total=n, page=page, traders=traders)
     return trader_list
 
 
-@cache('in-1m', key_prefix='chart_data_impl')
+@cache("in-1m", key_prefix="chart_data_impl")
 def get_chart_data(
     symbol: str,
     resolution: str,
     from_time: Optional[int] = None,
     to_time: Optional[int] = None,
     last_timestamp: Optional[int] = None,
-    count_back: Optional[int] = None
+    count_back: Optional[int] = None,
 ) -> list:
     """Fetch OHLCV data from database for charting.
-    
+
     Creates its own database session internally. Returns dicts for proper JSON serialization.
-    
+
     Args:
         symbol: Trading pair symbol (e.g., 'USDM/ADA')
         resolution: Chart resolution ('5m', '30m', '1h', '4h', '1d')
@@ -620,7 +630,7 @@ def get_chart_data(
         to_time: End timestamp in seconds (optional, exclusive for TradingView)
         last_timestamp: Get data after this timestamp (optional, for WebSocket)
         count_back: Required number of bars (optional, for TradingView getBars)
-    
+
     Returns:
         List of dicts with keys: timestamp, open, high, low, close, volume
     """
@@ -629,27 +639,28 @@ def get_chart_data(
     try:
         # Normalize symbol
         symbol_clean = symbol.strip().replace("_", "/")
-        
+
         # Validate and convert resolution to timeframe
         if resolution not in SUPPORTED_RESOLUTIONS:
-            raise ValueError(f"Invalid resolution: {resolution}. Supported: {SUPPORTED_RESOLUTIONS}")
-        
+            raise ValueError(
+                f"Invalid resolution: {resolution}. Supported: {SUPPORTED_RESOLUTIONS}"
+            )
+
         timeframe = resolution
-        
+
         # Map timeframe to table key
         if timeframe not in TIMEFRAME_MAP:
             raise ValueError(f"Invalid timeframe: {timeframe}")
 
-
         table_key = TIMEFRAME_MAP[timeframe]
         if table_key not in tables:
             raise ValueError(f"Table not found for timeframe: {timeframe}")
-        
+
         f_table = tables[table_key]
         timeframe_duration = TIMEFRAME_DURATION_MAP.get(timeframe, 3600)
-        
+
         if from_time is not None:
-            from_time = from_time - timeframe_duration  
+            from_time = from_time - timeframe_duration
         if to_time is not None:
             to_time = to_time - timeframe_duration
         if last_timestamp is not None:
@@ -659,9 +670,9 @@ def get_chart_data(
         where_conditions = [
             f"symbol = '{symbol_clean}'",
             "open IS NOT NULL",
-            "close IS NOT NULL"
+            "close IS NOT NULL",
         ]
-        
+
         if last_timestamp is not None:
             where_conditions.append(f"open_time > {last_timestamp}")
         elif from_time is not None and to_time is not None:
@@ -672,20 +683,20 @@ def get_chart_data(
             where_conditions.append(f"open_time >= {from_time}")
         elif to_time is not None:
             where_conditions.append(f"open_time < {to_time}")
-        
+
         where_clause = " AND ".join(where_conditions)
-        
+
         # Build ORDER BY clause
         if last_timestamp is not None:
             order_by = "ORDER BY open_time DESC"
         else:
             order_by = "ORDER BY open_time ASC"
-        
+
         # Build LIMIT clause using count_back
         limit_clause = ""
         if count_back is not None and count_back > 0:
             limit_clause = f"LIMIT {count_back}"
-        
+
         # Build query
         query = f"""
             SELECT 
@@ -700,49 +711,40 @@ def get_chart_data(
             {order_by}
             {limit_clause}
         """
-        
+
         try:
             result = db.execute(text(query)).fetchall()
-            
+
             return [
                 {
-                    'timestamp': row.timestamp,
-                    'open': row.open,
-                    'high': row.high,
-                    'low': row.low,
-                    'close': row.close,
-                    'volume': row.volume
+                    "timestamp": row.timestamp,
+                    "open": row.open,
+                    "high": row.high,
+                    "low": row.low,
+                    "close": row.close,
+                    "volume": row.volume,
                 }
                 for row in result
             ]
-                
+
         except Exception as e:
             raise Exception(f"Database query error: {str(e)}")
     finally:
         db.close()
 
 
-
 def format_tradingview_data(result: list) -> dict:
     """Format database result to TradingView format.
-    
+
     Args:
         result: List of database rows with (timestamp, open, high, low, close, volume)
-    
+
     Returns:
         Dictionary in TradingView format with arrays: t, o, h, l, c, v
     """
     if not result or len(result) == 0:
-        return {
-            "s": "no_data",
-            "t": [],
-            "o": [],
-            "h": [],
-            "l": [],
-            "c": [],
-            "v": []
-        }
-    
+        return {"s": "no_data", "t": [], "o": [], "h": [], "l": [], "c": [], "v": []}
+
     # Convert to TradingView format
     timestamps = []
     opens = []
@@ -750,15 +752,15 @@ def format_tradingview_data(result: list) -> dict:
     lows = []
     closes = []
     volumes = []
-    
+
     for row in result:
-        timestamps.append(int(row['timestamp']) if row['timestamp'] else 0)
-        opens.append(float(row['open']) if row['open'] is not None else 0.0)
-        highs.append(float(row['high']) if row['high'] is not None else 0.0)
-        lows.append(float(row['low']) if row['low'] is not None else 0.0)
-        closes.append(float(row['close']) if row['close'] is not None else 0.0)
-        volumes.append(float(row['volume']) if row['volume'] is not None else 0.0)
-    
+        timestamps.append(int(row["timestamp"]) if row["timestamp"] else 0)
+        opens.append(float(row["open"]) if row["open"] is not None else 0.0)
+        highs.append(float(row["high"]) if row["high"] is not None else 0.0)
+        lows.append(float(row["low"]) if row["low"] is not None else 0.0)
+        closes.append(float(row["close"]) if row["close"] is not None else 0.0)
+        volumes.append(float(row["volume"]) if row["volume"] is not None else 0.0)
+
     return {
         "s": "ok",
         "t": timestamps,
@@ -766,12 +768,12 @@ def format_tradingview_data(result: list) -> dict:
         "h": highs,
         "l": lows,
         "c": closes,
-        "v": volumes
+        "v": volumes,
     }
 
 
 @router.get("/charting/config", tags=group_tags)
-@cache('in-1h')
+@cache("in-1h")
 def get_config():
     """TradingView charting library configuration endpoint."""
     return {
@@ -786,13 +788,13 @@ def get_config():
 
 
 @router.get("/charting/pairs", tags=group_tags)
-@cache('in-1h')
+@cache("in-1h")
 def search_pairs(
     query: Optional[str] = None,
     exchange: Optional[str] = None,
     symbol_type: Optional[str] = None,
     limit: Optional[int] = 50,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """TradingView searchSymbols endpoint.
     - query: Search query string (optional)
@@ -802,9 +804,9 @@ def search_pairs(
     """
     # Build query
     query_obj = db.query(Pool)
-    
+
     # Apply search filter if provided
-    if query_obj:
+    if query and query.strip():
         query_obj = query_obj.filter(Pool.pair.ilike(f"%{query.strip()}%"))
 
     if limit:
@@ -815,26 +817,29 @@ def search_pairs(
         # Format results for TradingView SearchSymbolResultItem format
         symbols = []
         for row in results:
-            pair = row.pair if row.pair else ''
+            pair = str(row.pair) if row.pair is not None else ""
             if pair:
                 pair_clean = pair.strip().replace("_", "/").upper()
-                symbols.append({
-                    "pair": pair_clean,
-                    "description": f"{pair_clean} Trading Pair",
-                    "exchange": "",
-                    "ticker": pair_clean,
-                    "type": "crypto"
-                })
-        
+                symbols.append(
+                    {
+                        "pair": pair_clean,
+                        "description": f"{pair_clean} Trading Pair",
+                        "exchange": "",
+                        "ticker": pair_clean,
+                        "type": "crypto",
+                    }
+                )
+
         return symbols
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
+
 @router.get("/charting/pairs/{pair}", tags=group_tags)
-@cache('in-1h')
+@cache("in-1h")
 def resolve_pair(pair: str, db: Session = Depends(get_db)):
     """TradingView resolveSymbol endpoint.
-    
+
     - pair: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
     """
     # Normalize symbol format
@@ -842,7 +847,7 @@ def resolve_pair(pair: str, db: Session = Depends(get_db)):
     pool = db.query(Pool).filter(Pool.pair == pair_clean).first()
     if not pool:
         raise HTTPException(status_code=404, detail="Pool not found")
-    
+
     return {
         "name": pair_clean,
         "ticker": pair_clean,
@@ -863,17 +868,18 @@ def resolve_pair(pair: str, db: Session = Depends(get_db)):
         "has_no_volume": False,
     }
 
+
 @router.get("/charting/history/{pair}", tags=group_tags)
-@cache('in-5m')
+@cache("in-5m")
 def get_bars(
     pair: str,
     resolution: str,
-    from_: int=None,
-    to: int=None,
-    count_back: Optional[int] = None
+    from_: int | None = None,
+    to: int | None = None,
+    count_back: Optional[int] = None,
 ):
     """TradingView getBars endpoint (historical data).
-    
+
     - pair: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
     - resolution: Chart resolution ('5m', '30m', '1h', '4h', '1d')
     - from_: Start timestamp in seconds
@@ -890,14 +896,15 @@ def get_bars(
             resolution=resolution,
             from_time=from_,
             to_time=to,
-            count_back=count_back
+            count_back=count_back,
         )
-        
+
         return format_tradingview_data(result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 def generate_subscriber_id(symbol: str, resolution: str) -> str:
     """Generate subscriber_id in format: BARS_{pair}_{resolution}"""
@@ -905,13 +912,14 @@ def generate_subscriber_id(symbol: str, resolution: str) -> str:
     pair = symbol.replace("/", "_")
     return f"BARS_{pair}_{resolution}"
 
+
 # todo: remove this websocket
 @router.websocket("/charting/ws")
 async def ohlc(websocket: WebSocket):
     """TradingView subscribeBars/unsubscribeBars WebSocket endpoint.
-    
+
     DEPRECATED: Use the unified WebSocket endpoint at /ws with channel 'ohlc:{symbol}_{resolution}' instead.
-    
+
     Expected message format:
     {
         "action": "subscribe" | "unsubscribe",
@@ -949,58 +957,70 @@ async def ohlc(websocket: WebSocket):
                 action = message.get("action")
                 symbol = message.get("symbol", "").strip().replace("_", "/").upper()
                 resolution = message.get("resolution", "")
-                
+
                 if action == "subscribe":
                     if symbol and resolution:
                         if resolution not in SUPPORTED_RESOLUTIONS:
                             subscriber_id = generate_subscriber_id(symbol, resolution)
-                            await websocket.send_json({
-                                "error": f"Invalid resolution: {resolution}",
-                                "subscriber_id": subscriber_id
-                            })
+                            await websocket.send_json(
+                                {
+                                    "error": f"Invalid resolution: {resolution}",
+                                    "subscriber_id": subscriber_id,
+                                }
+                            )
                         else:
                             # Generate subscriber_id automatically
                             subscriber_id = generate_subscriber_id(symbol, resolution)
                             subscriptions[subscriber_id] = {
                                 "symbol": symbol,
                                 "resolution": resolution,
-                                "last_timestamp": 0
+                                "last_timestamp": 0,
                             }
-                            await websocket.send_json({
-                                "status": "subscribed",
-                                "subscriber_id": subscriber_id,
-                                "symbol": symbol,
-                                "resolution": resolution
-                            })
+                            await websocket.send_json(
+                                {
+                                    "status": "subscribed",
+                                    "subscriber_id": subscriber_id,
+                                    "symbol": symbol,
+                                    "resolution": resolution,
+                                }
+                            )
                     else:
-                        await websocket.send_json({
-                            "error": "Missing required fields: symbol or resolution",
-                            "subscriber_id": ""
-                        })
-                
+                        await websocket.send_json(
+                            {
+                                "error": "Missing required fields: symbol or resolution",
+                                "subscriber_id": "",
+                            }
+                        )
+
                 elif action == "unsubscribe":
                     if symbol and resolution:
                         # Generate subscriber_id from symbol and resolution
                         subscriber_id = generate_subscriber_id(symbol, resolution)
                         if subscriber_id in subscriptions:
                             del subscriptions[subscriber_id]
-                            await websocket.send_json({
-                                "status": "unsubscribed",
-                                "subscriber_id": subscriber_id,
-                                "symbol": symbol,
-                                "resolution": resolution
-                            })
+                            await websocket.send_json(
+                                {
+                                    "status": "unsubscribed",
+                                    "subscriber_id": subscriber_id,
+                                    "symbol": symbol,
+                                    "resolution": resolution,
+                                }
+                            )
                         else:
-                            await websocket.send_json({
-                                "error": f"Subscription not found for subscriber_id: {subscriber_id}",
-                                "subscriber_id": subscriber_id
-                            })
+                            await websocket.send_json(
+                                {
+                                    "error": f"Subscription not found for subscriber_id: {subscriber_id}",
+                                    "subscriber_id": subscriber_id,
+                                }
+                            )
                     else:
-                        await websocket.send_json({
-                            "error": "Missing required fields: symbol or resolution",
-                            "subscriber_id": ""
-                        })
-                
+                        await websocket.send_json(
+                            {
+                                "error": "Missing required fields: symbol or resolution",
+                                "subscriber_id": "",
+                            }
+                        )
+
             except asyncio.TimeoutError:
                 # Timeout is expected - continue to send updates
                 pass
@@ -1008,7 +1028,7 @@ async def ohlc(websocket: WebSocket):
                 await websocket.send_json({"error": "Invalid JSON format"})
             except Exception as e:
                 await websocket.send_json({"error": str(e)})
-            
+
             # Send real-time updates for all active subscriptions
             # print(f"Subscriptions: {subscriptions}")
             if subscriptions:
@@ -1017,7 +1037,7 @@ async def ohlc(websocket: WebSocket):
                     resolution = sub_info["resolution"]
                     last_timestamp = sub_info["last_timestamp"]
                     # print(f"Last timestamp: {last_timestamp}")
-                    
+
                     try:
                         # Get latest bar after last_timestamp
                         # last_timestamp stores the open_time of the last bar we sent
@@ -1026,38 +1046,59 @@ async def ohlc(websocket: WebSocket):
                             symbol=symbol,
                             resolution=resolution,
                             last_timestamp=last_timestamp,
-                            count_back=1
+                            count_back=1,
                         )
-                        
+
                         if result and len(result) > 0:
                             row = result[0]
-                            current_timestamp = int(row['timestamp']) if row['timestamp'] else 0
-                                                        
+                            current_timestamp = (
+                                int(row["timestamp"]) if row["timestamp"] else 0
+                            )
+
                             # Only send if this is a new bar (open_time > last_timestamp)
                             # This prevents sending duplicate bars when no new data is available
-                            if last_timestamp == 0 or current_timestamp > last_timestamp:
+                            if (
+                                last_timestamp == 0
+                                or current_timestamp > last_timestamp
+                            ):
                                 # Update last_timestamp to the open_time of this bar
                                 # Next query will get bars that opened after this bar
-                                subscriptions[subscriber_id]["last_timestamp"] = current_timestamp
-                                
+                                subscriptions[subscriber_id]["last_timestamp"] = (
+                                    current_timestamp
+                                )
+
                                 # Send update to this specific subscriber
-                                await websocket.send_json({
-                                    "subscriber_id": subscriber_id,
-                                    "symbol": symbol,
-                                    "timestamp": current_timestamp,
-                                    "open": float(row['open']) if row['open'] is not None else 0.0,
-                                    "high": float(row['high']) if row['high'] is not None else 0.0,
-                                    "low": float(row['low']) if row['low'] is not None else 0.0,
-                                    "close": float(row['close']) if row['close'] is not None else 0.0,
-                                    "volume": float(row['volume']) if row['volume'] is not None else 0.0,
-                                })
+                                await websocket.send_json(
+                                    {
+                                        "subscriber_id": subscriber_id,
+                                        "symbol": symbol,
+                                        "timestamp": current_timestamp,
+                                        "open": float(row["open"])
+                                        if row["open"] is not None
+                                        else 0.0,
+                                        "high": float(row["high"])
+                                        if row["high"] is not None
+                                        else 0.0,
+                                        "low": float(row["low"])
+                                        if row["low"] is not None
+                                        else 0.0,
+                                        "close": float(row["close"])
+                                        if row["close"] is not None
+                                        else 0.0,
+                                        "volume": float(row["volume"])
+                                        if row["volume"] is not None
+                                        else 0.0,
+                                    }
+                                )
                     except Exception as e:
                         # Log error but continue
-                        print(f"Error querying data for {symbol} (subscriber {subscriber_id}): {e}")
-            
+                        print(
+                            f"Error querying data for {symbol} (subscriber {subscriber_id}): {e}"
+                        )
+
             # Wait before next update (poll every 60 seconds)
             await asyncio.sleep(10)
-                
+
     except WebSocketDisconnect:
         print("WebSocket disconnected")
     except Exception as e:
@@ -1068,42 +1109,41 @@ async def ohlc(websocket: WebSocket):
             pass
 
 
-@router.get("/trend",
-            tags=group_tags,
-            response_model=schemas.TrendResponse)
-@cache('at-e5m')
+@router.get("/trend", tags=group_tags, response_model=schemas.TrendResponse)
+@cache("at-e5m")
 def get_trend(
-    timeframe: str = '1d',
-    limit: Optional[int] = None,
-    db: Session = Depends(get_db)
+    timeframe: str = "1d", limit: Optional[int] = None, db: Session = Depends(get_db)
 ) -> schemas.TrendResponse:
     """Retrieves trend prediction data for all trading pairs, grouped by uptrend and downtrend.
     Uses technical analysis to predict market direction in about 5 candles.
-    
+
     - timeframe: Time interval for analysis ('5m', '30m', '1h', '4h', '1d', default: '1d')
     - limit: Maximum number of rows to return (optional)
-    
+
     OUTPUT:
     - uptrend: Array of pairs in uptrend with pair, confidence, price, change_24h, volume_24h
     - downtrend: Array of pairs in downtrend with pair, confidence, price, change_24h, volume_24h
     """
     # Validate timeframe
     timeframe_lower = timeframe.strip().lower()
-    valid_timeframes = ['5m', '30m', '1h', '4h', '1d']
+    valid_timeframes = ["5m", "30m", "1h", "4h", "1d"]
     if timeframe_lower not in valid_timeframes:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid timeframe: {timeframe}. Valid values: {', '.join(valid_timeframes)}"
+            detail=f"Invalid timeframe: {timeframe}. Valid values: {', '.join(valid_timeframes)}",
         )
-        
+
     table_key = TIMEFRAME_MAP[timeframe_lower]
     if table_key not in tables:
-        raise HTTPException(status_code=400, detail=f"Table not found for timeframe: {timeframe}")
-    
-    f_table = tables[table_key]  # Will be used in SQL query below
-    from_time = int(datetime.now().timestamp()) - 10* TIMEFRAME_DURATION_MAP[timeframe_lower]
+        raise HTTPException(
+            status_code=400, detail=f"Table not found for timeframe: {timeframe}"
+        )
 
-    
+    f_table = tables[table_key]  # Will be used in SQL query below
+    from_time = (
+        int(datetime.now().timestamp()) - 10 * TIMEFRAME_DURATION_MAP[timeframe_lower]
+    )
+
     query = f"""
     select symbol, 
         cast(sum(rsi14*CAST(r=1 AS int))/10 - 5 as float) rsi, 
@@ -1148,52 +1188,56 @@ def get_trend(
     group by symbol
     """
     result = db.execute(text(query)).fetchall()
-    
+
     # Placeholder values
     uptrend_pairs = {}
     downtrend_pairs = {}
-    
-    for row in result:
-        score = row.rsi *0.3 + row.adx *0.4 + row.psar *0.3  # range -5 to 5
-        if score > 1:
-            uptrend_pairs[row.symbol] = round(20*score, 2)
-        elif score < -1:
-            downtrend_pairs[row.symbol] = round(-20*score, 2)
 
-    sorted_uptrend_pairs = sorted(uptrend_pairs.items(), key=lambda item: item[1], reverse=True)
-    sorted_downtrend_pairs = sorted(downtrend_pairs.items(), key=lambda item: item[1], reverse=True)
+    for row in result:
+        score = row.rsi * 0.3 + row.adx * 0.4 + row.psar * 0.3  # range -5 to 5
+        if score > 1:
+            uptrend_pairs[row.symbol] = round(20 * score, 2)
+        elif score < -1:
+            downtrend_pairs[row.symbol] = round(-20 * score, 2)
+
+    sorted_uptrend_pairs = sorted(
+        uptrend_pairs.items(), key=lambda item: item[1], reverse=True
+    )
+    sorted_downtrend_pairs = sorted(
+        downtrend_pairs.items(), key=lambda item: item[1], reverse=True
+    )
     if limit is not None and limit > 0:
         sorted_uptrend_pairs = sorted_uptrend_pairs[:limit]
         sorted_downtrend_pairs = sorted_downtrend_pairs[:limit]
-    
+
     uptrend_list = []
     downtrend_list = []
     for pair, confidence in sorted_uptrend_pairs:
-        token = pair.split('/')[0]
+        token = pair.split("/")[0]
         token_data = _get_token_info_data(token)
-        uptrend_list.append(schemas.TrendPair(
-            pair=pair,
-            confidence=confidence,
-            price=token_data['price'],
-            change_24h=token_data['change_24h'],
-            volume_24h=token_data['volume_24h'],
-            market_cap=token_data['market_cap'],
-            logo_url=token_data['logo_url']
-        ))
+        uptrend_list.append(
+            schemas.TrendPair(
+                pair=pair,
+                confidence=confidence,
+                price=token_data["price"],
+                change_24h=token_data["change_24h"],
+                volume_24h=token_data["volume_24h"],
+                market_cap=token_data["market_cap"],
+                logo_url=token_data["logo_url"],
+            )
+        )
     for pair, confidence in sorted_downtrend_pairs:
-        token = pair.split('/')[0]
+        token = pair.split("/")[0]
         token_data = _get_token_info_data(token)
-        downtrend_list.append(schemas.TrendPair(
-            pair=pair,
-            confidence=confidence,
-            price=token_data['price'],
-            change_24h=token_data['change_24h'],
-            volume_24h=token_data['volume_24h'],
-            market_cap=token_data['market_cap'],
-            logo_url=token_data['logo_url']
-        ))
-    return schemas.TrendResponse(
-        uptrend=uptrend_list,
-        downtrend=downtrend_list
-    )
-
+        downtrend_list.append(
+            schemas.TrendPair(
+                pair=pair,
+                confidence=confidence,
+                price=token_data["price"],
+                change_24h=token_data["change_24h"],
+                volume_24h=token_data["volume_24h"],
+                market_cap=token_data["market_cap"],
+                logo_url=token_data["logo_url"],
+            )
+        )
+    return schemas.TrendResponse(uptrend=uptrend_list, downtrend=downtrend_list)
