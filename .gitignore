@@ -5,6 +5,8 @@ build/
 dist/
 wheels/
 *.egg-info
+.coverage
+coverage.xml
 
 # code editor
 .vscode
@@ -16,17 +18,20 @@ tasks/
 # env
 venv
 .venv
-.env
+.env*
+!.env.example
+*.env
 
 # dev folders
 notebooks
 test.py
-run.sh
+*.sh
 
 # archive folder
 *.zip
 
 # images in static folders
+static/images/*
 static**/*.png
 static**/*.jpg
 static**/*.jpeg

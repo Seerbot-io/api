@@ -8,4 +8,3 @@ from main import app
 def client() -> TestClient:
     """Create a test client for the FastAPI application."""
     return TestClient(app)
-
