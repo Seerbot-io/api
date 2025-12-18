@@ -41,7 +41,8 @@ jobs:
         uses: oNaiPs/secrets-to-env-action@v1.5
         with:
           secrets: ${{ toJSON(secrets) }}
-      - run: echo "$HOST $PORT"
+      - run: echo "${HOST} ${PORT}"
+      - run: echo ${{ secrets.HOST }}
       - run: uv run pytest -v --durations=0 --cov --cov-report=xml
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v4
