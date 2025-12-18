@@ -1,5 +1,8 @@
 name: Python Code Quality
-on: [push]
+on: 
+  push:
+    branches:
+      - main
 jobs:
   lock_file:
     runs-on: ubuntu-latest
@@ -35,6 +38,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - run: uv run pytest -v --durations=0 --cov --cov-report=xml
+        env:
+          HOST: ${{ secrets.HOST }}
+          PORT: ${{ secrets.PORT }}
+      - run: echo $HOST
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
