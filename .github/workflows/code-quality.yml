@@ -41,13 +41,9 @@ jobs:
       - name: Export all secrets to env variables
         uses: easyware-io/export-to-env@v1
         with:
-          secrets: ${{ toJSON(secrets) }}
-          vars: ${{ toJSON(vars) }}
-        env:
-          HOST: "localhost"          
-      - run: printenv
+          secrets: ${{ toJSON(secrets) }}          
+      # - run: printenv
       - run: uv run pytest -v --durations=0 --cov --cov-report=xml
-
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
