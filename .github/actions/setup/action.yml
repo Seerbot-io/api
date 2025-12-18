@@ -7,3 +7,7 @@ runs:
       shell: bash
       run: |
         curl -LsSf https://astral.sh/uv/install.sh | sh
+    - name: Export all secrets as environment variables
+      uses: oNaiPs/secrets-to-env-action@v1
+      with:
+        secrets: ${{ toJSON(secrets) }}
