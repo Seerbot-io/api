@@ -20,7 +20,6 @@ from typing import Any, Dict, Optional
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
 
 from app.core.jwt_utils import verify_token
 from app.db.session import get_db

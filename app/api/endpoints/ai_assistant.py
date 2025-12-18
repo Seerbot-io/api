@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import List
 from enum import Enum
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import text
@@ -13,7 +13,7 @@ from app.models.users import User
 
 router = APIRouter()
 SCHEMAS = "chatbot"
-group_tags:List[str | Enum] = ["AI Assistant"]
+group_tags: List[str | Enum] = ["AI Assistant"]
 
 
 @router.get("/chat", tags=group_tags, response_model=List[schemas.ChatMessage])

@@ -55,9 +55,7 @@ def create_access_token(
     payload: Dict[str, Any] = {
         "wallet_address": wallet_address,
         "iat": int(now.timestamp()),
-        "exp": int(
-            (now + timedelta(seconds=expire_seconds)).timestamp()
-        ),
+        "exp": int((now + timedelta(seconds=expire_seconds)).timestamp()),
     }
     if extra_claims:
         payload.update(extra_claims)
@@ -92,9 +90,7 @@ def verify_token(token: str) -> Dict[str, Any]:
         print(f"Decoding token: {token}")
         encode_key = settings.ENCODE_KEY or ""
         algorithm = settings.ENCODE_ALGORITHM or "HS256"
-        payload = jwt.decode(
-            token, encode_key, algorithms=[algorithm]
-        )
+        payload = jwt.decode(token, encode_key, algorithms=[algorithm])
         print(f"Payload: {payload}")
     except jwt.ExpiredSignatureError:
         raise HTTPException(

@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import datetime
+from enum import Enum
 from typing import List, Optional
 
 from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -17,9 +18,6 @@ from app.models.pools import Pool
 from app.models.swaps import Swap
 from app.models.tokens import Token
 from app.services.onchain_process import extract_swap_info
-
-from typing import cast
-from enum import Enum
 
 router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)

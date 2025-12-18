@@ -1,5 +1,5 @@
-from typing import List
 from enum import Enum
+from typing import List
 
 from fastapi import Depends, status
 from sqlalchemy import text
