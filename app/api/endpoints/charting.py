@@ -221,7 +221,7 @@ def get_config():
 def resolve_pair(pair: str):
     """TradingView resolveSymbol endpoint.
 
-    - pair: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
+    - pair: Trading pair symbol (e.g., 'USDM_ADA')
     """
     # Normalize symbol format
     pair_clean = pair.strip().replace("_", "/").upper()
@@ -302,7 +302,7 @@ def get_bars(
 ):
     """TradingView getBars endpoint (historical data).
 
-    - pair: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
+    - pair: Trading pair symbol (e.g., 'USDM_ADA')
     - resolution: Chart resolution ('5m', '30m', '1h', '4h', '1d')
     - from_: Start timestamp in seconds
     - to: End timestamp in seconds (exclusive)

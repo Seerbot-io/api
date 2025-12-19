@@ -378,7 +378,7 @@ async def handle_ohlc(
         result = get_chart_data(  # have cache
             symbol=symbol,
             resolution=resolution,
-            last_timestamp=last_timestamp,
+            from_time=last_timestamp+ 300,
             count_back=1,
         )
         print("result", result)

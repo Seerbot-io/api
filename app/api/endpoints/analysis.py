@@ -603,7 +603,6 @@ def get_chart_data(
     resolution: str,
     from_time: Optional[int] = None,
     to_time: Optional[int] = None,
-    last_timestamp: Optional[int] = None,
     count_back: Optional[int] = None,
 ) -> list:
     """Fetch OHLCV data from database for charting.
@@ -615,7 +614,6 @@ def get_chart_data(
         resolution: Chart resolution ('5m', '30m', '1h', '4h', '1d')
         from_time: Start timestamp in seconds (optional)
         to_time: End timestamp in seconds (optional, exclusive for TradingView)
-        last_timestamp: Get data after this timestamp (optional, for WebSocket)
         count_back: Required number of bars (optional, for TradingView getBars)
 
     Returns:
@@ -646,13 +644,16 @@ def get_chart_data(
         f_table = tables[table_key]
         timeframe_duration = TIMEFRAME_DURATION_MAP.get(timeframe, 3600)
 
-        if from_time is not None:
-            from_time = from_time - timeframe_duration
         if to_time is not None:
             to_time = to_time - timeframe_duration
-        if last_timestamp is not None:
-            last_timestamp = last_timestamp - timeframe_duration
-
+        else:
+            to_time = int(datetime.now().timestamp())
+        if from_time is not None:
+            from_time = from_time - timeframe_duration
+        else:
+            rows = count_back if count_back is not None else 20
+            from_time = to_time - rows * timeframe_duration
+            print("from_time", from_time, "to_time", to_time, "rows", rows, timeframe_duration)
         # Build WHERE conditions
         where_conditions = [
             f"symbol = '{symbol_clean}'",
@@ -660,9 +661,7 @@ def get_chart_data(
             "close IS NOT NULL",
         ]
 
-        if last_timestamp is not None:
-            where_conditions.append(f"open_time > {last_timestamp}")
-        elif from_time is not None and to_time is not None:
+        if from_time is not None and to_time is not None:
             # Make to_time exclusive for TradingView: use < instead of <=
             where_conditions.append(f"open_time >= {from_time}")
             where_conditions.append(f"open_time < {to_time}")
@@ -672,12 +671,6 @@ def get_chart_data(
             where_conditions.append(f"open_time < {to_time}")
 
         where_clause = " AND ".join(where_conditions)
-
-        # Build ORDER BY clause
-        if last_timestamp is not None:
-            order_by = "ORDER BY open_time DESC"
-        else:
-            order_by = "ORDER BY open_time ASC"
 
         # Build LIMIT clause using count_back
         limit_clause = ""
@@ -695,7 +688,7 @@ def get_chart_data(
                 volume
             FROM {f_table}
             WHERE {where_clause}
-            {order_by}
+            ORDER BY open_time DESC
             {limit_clause}
         """
 
@@ -827,7 +820,7 @@ def search_pairs(
 def resolve_pair(pair: str, db: Session = Depends(get_db)):
     """TradingView resolveSymbol endpoint.
 
-    - pair: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
+    - pair: Trading pair symbol (e.g., 'USDM_ADA')
     """
     # Normalize symbol format
     pair_clean = pair.strip().replace("_", "/")
@@ -867,16 +860,18 @@ def get_bars(
 ):
     """TradingView getBars endpoint (historical data).
 
-    - pair: Trading pair symbol (e.g., 'USDM/ADA' or 'USDM_ADA')
+    - pair: Trading pair symbol (e.g., 'USDM_ADA')
     - resolution: Chart resolution ('5m', '30m', '1h', '4h', '1d')
     - from_: Start timestamp in seconds
     - to: End timestamp in seconds (exclusive)
     - count_back: Required number of bars (optional, TradingView uses this)
     """
+    tf = TIMEFRAME_DURATION_MAP[resolution]
     if to is None:
-        to = int(datetime.now().timestamp())
+        to = int(datetime.now().timestamp()) // tf * tf
     if from_ is None:
-        from_ = to - 10 * TIMEFRAME_DURATION_MAP[resolution]
+        n_rows = count_back + 1 if count_back is not None else 20
+        from_ = to - n_rows * tf
     try:
         result = get_chart_data(
             symbol=pair,
