@@ -653,7 +653,15 @@ def get_chart_data(
         else:
             rows = count_back if count_back is not None else 20
             from_time = to_time - rows * timeframe_duration
-            print("from_time", from_time, "to_time", to_time, "rows", rows, timeframe_duration)
+            print(
+                "from_time",
+                from_time,
+                "to_time",
+                to_time,
+                "rows",
+                rows,
+                timeframe_duration,
+            )
         # Build WHERE conditions
         where_conditions = [
             f"symbol = '{symbol_clean}'",
