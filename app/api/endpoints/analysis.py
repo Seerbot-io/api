@@ -46,6 +46,7 @@ TIMEFRAME_DURATION_MAP = {
 
 TOKEN_LIST = {}
 
+
 def _get_token_id(token: str) -> str | None:
     global TOKEN_LIST
     if token not in TOKEN_LIST or TOKEN_LIST is None or len(TOKEN_LIST.items()) == 0:
@@ -198,11 +199,11 @@ def get_indicators(
     )
 
 
-# @cache("in-1m")
+@cache("in-1m")
 def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
     time_now = (int(datetime.now().timestamp()) // 300 - 1) * 300
     time_24h_ago = time_now - 24 * 60 * 60
-    
+    # print("[No cache] get_token_info_data for symbols: ", symbols)
     db = SessionLocal()
     data: list[schemas.TokenMarketInfo] = []
     if "ADA" in symbols:
@@ -235,16 +236,19 @@ def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
         """
         try:
             token = db.execute(text(query)).fetchone()
+            if token is None:
+                raise HTTPException(status_code=404, detail="Token not found")
             data.append(schemas.TokenMarketInfo.from_record(token))
         except Exception as e:
             print(e)
             raise HTTPException(status_code=500, detail="Failed to get token info")
 
     if len(symbols) > 0:
-        symbols_str = "('"+"', '".join(symbols)+"')"
-        pairs_str = "('"+"', '".join([f"{symbol}/ADA" for symbol in symbols])+"')"
+        symbols_str = "('" + "', '".join(symbols) + "')"
+        pairs_str = "('" + "', '".join([f"{symbol}/ADA" for symbol in symbols]) + "')"
         query = f"""  
-        select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
+        -- select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
+        select a.*, null as price, c.change_24h/b.ada_price change_24h
         ,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h, c.price * a.total_supply as market_cap
         from (
             select id, name, symbol, logo_url, total_supply, symbol || '/ADA' as pair
@@ -259,11 +263,11 @@ def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
         left join(
             select symbol, price, price - price_24h as change_24h
             from (
-                select symbol, open_time, close as price, lead(close) over (PARTITION BY symbol ORDER by open_time desc) price_24h, row_number() over (PARTITION BY symbol ORDER by open_time desc) as r
+                select symbol, open_time, close as price, lead(close, 2) over (PARTITION BY symbol ORDER by open_time desc) price_24h, row_number() over (PARTITION BY symbol ORDER by open_time desc) as r
                 from proddb.coin_prices_5m cph
                 where symbol in {pairs_str}
-                    and ((open_time >= {time_24h_ago} - 300 and open_time <= {time_24h_ago} + 300) -- range of 5 minutes for missing data
-                        or open_time = {time_now}
+                    and ((open_time >= {time_24h_ago} - 600 and open_time <= {time_24h_ago}) -- range of 5 minutes for missing data (3 records)
+                        or open_time > {time_now} - 300 -- if missing data, use the last 5 minutes data (2 records)
                     )
             ) coin
             where r = 1
@@ -1196,32 +1200,37 @@ def get_trend(
 
     uptrend_list = []
     downtrend_list = []
+    token_list = [pair.split("/")[0] for pair, confidence in sorted_uptrend_pairs] + [
+        pair.split("/")[0] for pair, confidence in sorted_downtrend_pairs
+    ]
+    token_data = _get_token_info_data(token_list)
+    token_data_dict = {}
+    for token in token_data:
+        token_data_dict[token.symbol] = token
     for pair, confidence in sorted_uptrend_pairs:
-        token = pair.split("/")[0]
-        token_data = _get_token_info_data(token)
+        token = token_data_dict[pair.split("/")[0]]
         uptrend_list.append(
             schemas.TrendPair(
                 pair=pair,
                 confidence=confidence,
-                price=token_data["price"],
-                change_24h=token_data["change_24h"],
-                volume_24h=token_data["volume_24h"],
-                market_cap=token_data["market_cap"],
-                logo_url=token_data["logo_url"],
+                price=token.price,
+                change_24h=token.change_24h,
+                volume_24h=token.volume_24h,
+                market_cap=token.market_cap,
+                logo_url=token.logo_url,
             )
         )
     for pair, confidence in sorted_downtrend_pairs:
-        token = pair.split("/")[0]
-        token_data = _get_token_info_data(token)
+        token = token_data_dict[pair.split("/")[0]]
         downtrend_list.append(
             schemas.TrendPair(
                 pair=pair,
                 confidence=confidence,
-                price=token_data["price"],
-                change_24h=token_data["change_24h"],
-                volume_24h=token_data["volume_24h"],
-                market_cap=token_data["market_cap"],
-                logo_url=token_data["logo_url"],
+                price=token.price,
+                change_24h=token.change_24h,
+                volume_24h=token.volume_24h,
+                market_cap=token.market_cap,
+                logo_url=token.logo_url,
             )
         )
     return schemas.TrendResponse(uptrend=uptrend_list, downtrend=downtrend_list)

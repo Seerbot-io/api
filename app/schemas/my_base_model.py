@@ -19,7 +19,7 @@ class CustormBaseModel(BaseModel):
             # parent = self.__base__
             while attr_type is None and me != CustormBaseModel:
                 try:
-                    attr_type = me.__annotations__[attr]
+                    attr_type = me.model_fields[attr].annotation
                 except Exception:
                     if me.__base__ is not None:
                         me = me.__base__
@@ -34,16 +34,11 @@ class CustormBaseModel(BaseModel):
                     data[attr] = attr_type(value)
                 except Exception:
                     print(f"Invalid value for key: {attr}")
-                    if hasattr(
-                        self, attr
-                    ):  # set the default value if the value is invalid
-                        print(f"Set default value for key: {attr}", getattr(self, attr))
-                        data[attr] = getattr(self, attr)
+                    if attr in me.model_fields:
+                        print(f"Set default value for key: {attr}")
+                        data[attr] = me.model_fields[attr].default
                     else:  # set the custorm default value it don't have default value
-                        print(
-                            f"Set custorm default value for key: {attr}",
-                            getattr(self, attr),
-                        )
+                        print(f"Set custorm default value for key: {attr}")
                         # Use appropriate default value based on type
                         if attr_type is dict:
                             data[attr] = {}
@@ -67,15 +62,16 @@ class CustormBaseModel(BaseModel):
     # for serialization fileds
     def check_serialization(self):
         pass
-    
+
     @classmethod
-    def from_record(cls, record:Row):
+    def from_record(cls, record: Row[Any] | dict[str, Any]):
         if isinstance(record, Row):
             return cls(**record._asdict())
         elif isinstance(record, dict):
             return cls(**record)
         else:
             raise ValueError(f"Invalid record type: {type(record)}")
+
 
 class Message(CustormBaseModel):
     message: str = ""

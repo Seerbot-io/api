@@ -447,18 +447,27 @@ async def handle_token_info(
     # Normalize symbol
     symbol = symbol.strip().upper()
     try:
-        token_data = _get_token_info_data(symbol)  # have cache
+        token_data = _get_token_info_data([symbol])  # have cache
         # Return update data
+        if token_data is None or len(token_data) == 0:
+            await websocket.send_json(
+                {"error": "Token not found", "channel": subscription.channel}
+            )
+            return None
+        token = token_data[0]
         result = {
             "channel": subscription.channel,
             "type": "token_info",
             "data": {
                 "symbol": symbol,
-                "name": token_data.get("name"),
-                "logo_url": token_data.get("logo_url", ""),
-                "price": round(token_data.get("price", 0), 6),
-                "change_24h": round(token_data.get("change_24h", 0), 6),
-                "market_cap": round(token_data.get("market_cap", 0), 6),
+                "name": token.name,
+                "logo_url": token.logo_url,
+                "price": token.price,
+                "change_24h": token.change_24h,
+                "low_24h": token.low_24h,
+                "high_24h": token.high_24h,
+                "volume_24h": token.volume_24h,
+                "market_cap": token.market_cap,
                 "decimals": 6,
             },
         }
@@ -537,7 +546,10 @@ websocket_schema = {
              "logo_url": "https://...",
              "price": 1.234567,
              "change_24h": 5.678901,
-             "market_cap": 1234567.890123,
+             "low_24h": 1.234567,
+             "high_24h": 1.234567,
+             "volume_24h": 1.234567,
+             "market_cap": 1.234567,
              "decimals": 6
          }
      }
