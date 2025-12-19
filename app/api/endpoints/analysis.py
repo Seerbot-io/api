@@ -247,8 +247,7 @@ def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
         symbols_str = "('" + "', '".join(symbols) + "')"
         pairs_str = "('" + "', '".join([f"{symbol}/ADA" for symbol in symbols]) + "')"
         query = f"""  
-        -- select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
-        select a.*, null as price, c.change_24h/b.ada_price change_24h
+        select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
         ,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h, c.price * a.total_supply as market_cap
         from (
             select id, name, symbol, logo_url, total_supply, symbol || '/ADA' as pair
