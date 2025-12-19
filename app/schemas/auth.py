@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from app.schemas.my_base_model import CustormBaseModel
+from app.schemas.my_base_model import CustomBaseModel
 
 
 class NonceRequest(BaseModel):
@@ -9,7 +9,7 @@ class NonceRequest(BaseModel):
     address: str = Field(..., description="Wallet address")
 
 
-class NonceResponse(CustormBaseModel):
+class NonceResponse(CustomBaseModel):
     """Response model for nonce generation - output"""
 
     nonce: str = ""
@@ -24,7 +24,7 @@ class VerifyRequest(BaseModel):
     key: str = Field(..., description="Public key")
 
 
-class AuthResponse(CustormBaseModel):
+class AuthResponse(CustomBaseModel):
     """Response model for authentication - output"""
 
     access_token: str

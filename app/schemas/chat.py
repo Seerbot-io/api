@@ -3,10 +3,10 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import ConfigDict, Field
 
-from app.schemas.my_base_model import CustormBaseModel
+from app.schemas.my_base_model import CustomBaseModel
 
 
-class ChatMessage(CustormBaseModel):
+class ChatMessage(CustomBaseModel):
     """Chat message schema matching the AI SDK Message type"""
 
     model_config = ConfigDict(
@@ -26,7 +26,7 @@ class ChatMessage(CustormBaseModel):
     #     return v
 
 
-class SaveChatRequest(CustormBaseModel):
+class SaveChatRequest(CustomBaseModel):
     """Request model for saving chat messages - matches TypeScript saveChat input"""
 
     wallet_address: str = Field(default="", alias="walletAddress")

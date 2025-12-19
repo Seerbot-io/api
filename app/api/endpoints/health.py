@@ -1,7 +1,7 @@
 from fastapi import status
 
 from app.core.router_decorated import APIRouter
-from app.schemas.my_base_model import CustormBaseModel
+from app.schemas.my_base_model import CustomBaseModel
 
 router = APIRouter()
 
@@ -10,7 +10,7 @@ router = APIRouter()
 # - Have all the fields needed
 # - fields must have explicit types
 # - fields must have default values
-class HealthCheck(CustormBaseModel):
+class HealthCheck(CustomBaseModel):
     """Response model to validate and return when performing a health check."""
 
     status: str = "oke"

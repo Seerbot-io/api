@@ -1,7 +1,7 @@
-from app.schemas.my_base_model import CustormBaseModel
+from app.schemas.my_base_model import CustomBaseModel
 
 
-class Statistics(CustormBaseModel):
+class Statistics(CustomBaseModel):
     """Statistics response model for web content"""
 
     n_pair: str = ""
@@ -9,7 +9,7 @@ class Statistics(CustormBaseModel):
     n_tx: str = ""
 
 
-class Partner(CustormBaseModel):
+class Partner(CustomBaseModel):
     """Partner response model for web content"""
 
     name: str = ""

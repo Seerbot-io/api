@@ -3,7 +3,7 @@ from sqlalchemy.engine.row import Row
 from pydantic import BaseModel
 
 
-class CustormBaseModel(BaseModel):
+class CustomBaseModel(BaseModel):
     """Custom base model for all schemas.
     - pre-process the data before init
     - set the default value if the value is invalid
@@ -17,7 +17,7 @@ class CustormBaseModel(BaseModel):
             attr_type = None
             me = self.__class__
             # parent = self.__base__
-            while attr_type is None and me != CustormBaseModel:
+            while attr_type is None and me != CustomBaseModel:
                 try:
                     attr_type = me.model_fields[attr].annotation
                 except Exception:
@@ -73,6 +73,6 @@ class CustormBaseModel(BaseModel):
             raise ValueError(f"Invalid record type: {type(record)}")
 
 
-class Message(CustormBaseModel):
+class Message(CustomBaseModel):
     message: str = ""
     status_code: int = 200

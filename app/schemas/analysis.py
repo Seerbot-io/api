@@ -2,10 +2,10 @@ from typing import List, Optional, Union
 
 from pydantic import Field, field_validator
 
-from app.schemas.my_base_model import CustormBaseModel
+from app.schemas.my_base_model import CustomBaseModel
 
 
-class Prediction(CustormBaseModel):
+class Prediction(CustomBaseModel):
     symbol: str = ""
     date: str = ""
     price: float = 0
@@ -25,7 +25,7 @@ class Prediction(CustormBaseModel):
         return round(v, 6)
 
 
-class PredictionV2(CustormBaseModel):
+class PredictionV2(CustomBaseModel):
     symbol: str = ""
     update_time: str = ""
     target_time: str = ""
@@ -46,7 +46,7 @@ class PredictionV2(CustormBaseModel):
         return round(v, 6)
 
 
-class Validate(CustormBaseModel):
+class Validate(CustomBaseModel):
     mae: float = 0
     avg_err_rate: float = 0
     max_profit_rate: float = 0
@@ -72,7 +72,7 @@ class Validate(CustormBaseModel):
         return round(v, 4)
 
 
-class BackTest(CustormBaseModel):
+class BackTest(CustomBaseModel):
     symbol: str = ""
     open_time: str = ""
     close_time: str = ""
@@ -87,7 +87,7 @@ class BackTest(CustormBaseModel):
         return round(v, 6)
 
 
-class BackTestV2(CustormBaseModel):
+class BackTestV2(CustomBaseModel):
     open_time: str = ""
     close_time: str = ""
     close_predict: Union[float, str] = "null"
@@ -103,7 +103,7 @@ class BackTestV2(CustormBaseModel):
         return round(v, 6)
 
 
-class IndicatorData(CustormBaseModel):
+class IndicatorData(CustomBaseModel):
     timestamp: int = 0
     open: float = 0
     high: float = 0
@@ -122,20 +122,20 @@ class IndicatorData(CustormBaseModel):
         return round(v, 6)
 
 
-class IndicatorsResponse(CustormBaseModel):
+class IndicatorsResponse(CustomBaseModel):
     pair: str = ""
     timeframe: str = ""
     data: List[IndicatorData] = []
 
 
-class Token(CustormBaseModel):
+class Token(CustomBaseModel):
     id: str = ""
     name: str = ""
     symbol: str = ""
     logo_url: str = ""
 
 
-class TokenMarketInfo(CustormBaseModel):
+class TokenMarketInfo(CustomBaseModel):
     id: str = ""
     name: str = ""
     symbol: str = ""
@@ -154,13 +154,13 @@ class TokenMarketInfo(CustormBaseModel):
         return round(v, 6)
 
 
-class TokenList(CustormBaseModel):
+class TokenList(CustomBaseModel):
     total: int = 0
     page: int = 1
     tokens: List[TokenMarketInfo] = []
 
 
-class SwapCreate(CustormBaseModel):
+class SwapCreate(CustomBaseModel):
     order_tx_id: str = ""
     execution_tx_id: Optional[str] = None
     from_token: Optional[str] = None
@@ -173,11 +173,11 @@ class SwapCreate(CustormBaseModel):
         return v
 
 
-class MessageResponse(CustormBaseModel):
+class MessageResponse(CustomBaseModel):
     message: str = "oke"
 
 
-class SwapTransaction(CustormBaseModel):
+class SwapTransaction(CustomBaseModel):
     transaction_id: str = ""
     from_token: str = ""
     from_amount: float = 0.0
@@ -192,14 +192,14 @@ class SwapTransaction(CustormBaseModel):
         return round(v, 6)
 
 
-class SwapListResponse(CustormBaseModel):
+class SwapListResponse(CustomBaseModel):
     transactions: List[SwapTransaction] = []
     total: int = 0
     page: int = 1
     limit: int = 20
 
 
-class Trader(CustormBaseModel):
+class Trader(CustomBaseModel):
     user_id: str = ""
     total_volume: float = 0.0
     total_trades: int = 0
@@ -210,13 +210,13 @@ class Trader(CustormBaseModel):
         return round(v, 2)
 
 
-class TraderList(CustormBaseModel):
+class TraderList(CustomBaseModel):
     total: int = 0
     page: int = 1
     traders: List[Trader] = []
 
 
-class TrendPair(CustormBaseModel):
+class TrendPair(CustomBaseModel):
     """Trend data for a single trading pair"""
 
     pair: str = ""
@@ -236,7 +236,7 @@ class TrendPair(CustormBaseModel):
         return round(v, 6)
 
 
-class TrendResponse(CustormBaseModel):
+class TrendResponse(CustomBaseModel):
     """Response containing all pairs grouped by trend"""
 
     uptrend: List[TrendPair] = Field(default_factory=list)
