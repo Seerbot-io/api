@@ -135,12 +135,6 @@ class Token(CustormBaseModel):
     logo_url: str = ""
 
 
-class TokenList(CustormBaseModel):
-    total: int = 0
-    page: int = 1
-    tokens: List[Token] = []
-
-
 class TokenMarketInfo(CustormBaseModel):
     id: str = ""
     name: str = ""
@@ -158,6 +152,12 @@ class TokenMarketInfo(CustormBaseModel):
     )
     def round_value(cls, v: float) -> float:
         return round(v, 6)
+
+
+class TokenList(CustormBaseModel):
+    total: int = 0
+    page: int = 1
+    tokens: List[TokenMarketInfo] = []
 
 
 class SwapCreate(CustormBaseModel):

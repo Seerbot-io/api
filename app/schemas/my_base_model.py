@@ -1,5 +1,5 @@
 from typing import Any
-
+from sqlalchemy.engine.row import Row
 from pydantic import BaseModel
 
 
@@ -67,7 +67,15 @@ class CustormBaseModel(BaseModel):
     # for serialization fileds
     def check_serialization(self):
         pass
-
+    
+    @classmethod
+    def from_record(cls, record:Row):
+        if isinstance(record, Row):
+            return cls(**record._asdict())
+        elif isinstance(record, dict):
+            return cls(**record)
+        else:
+            raise ValueError(f"Invalid record type: {type(record)}")
 
 class Message(CustormBaseModel):
     message: str = ""

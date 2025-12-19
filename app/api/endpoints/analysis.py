@@ -46,7 +46,6 @@ TIMEFRAME_DURATION_MAP = {
 
 TOKEN_LIST = {}
 
-
 def _get_token_id(token: str) -> str | None:
     global TOKEN_LIST
     if token not in TOKEN_LIST or TOKEN_LIST is None or len(TOKEN_LIST.items()) == 0:
@@ -199,6 +198,89 @@ def get_indicators(
     )
 
 
+# @cache("in-1m")
+def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
+    time_now = (int(datetime.now().timestamp()) // 300 - 1) * 300
+    time_24h_ago = time_now - 24 * 60 * 60
+    
+    db = SessionLocal()
+    data: list[schemas.TokenMarketInfo] = []
+    if "ADA" in symbols:
+        symbols.pop(symbols.index("ADA"))
+        query = f"""  
+        select a.*, c.price, c.change_24h 
+        ,d.low_24h low_24h, d.high_24h high_24h, d.volume_24h volume_24h, c.price * a.total_supply as market_cap
+        from (
+            select id, name, symbol, logo_url, total_supply
+            from proddb.tokens
+            where symbol='ADA'
+        ) a left join(
+            select price, price - price_24h as change_24h
+            from (
+                select open_time, close as price, lead(close) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
+                from proddb.coin_prices_5m cph
+                where symbol='USDM/ADA'
+                    and ((open_time >= {time_24h_ago} - 300 and open_time <= {time_24h_ago} + 300) -- range of 5 minutes for missing data
+                        or open_time = {time_now}
+                    )
+            ) coin
+            where r = 1
+        ) c on TRUE
+        left join(   
+            select min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
+            from proddb.coin_prices_1h cph
+            where symbol='USDM/ADA'
+                and open_time > {time_24h_ago}
+            ) d on TRUE
+        """
+        try:
+            token = db.execute(text(query)).fetchone()
+            data.append(schemas.TokenMarketInfo.from_record(token))
+        except Exception as e:
+            print(e)
+            raise HTTPException(status_code=500, detail="Failed to get token info")
+
+    if len(symbols) > 0:
+        symbols_str = "('"+"', '".join(symbols)+"')"
+        pairs_str = "('"+"', '".join([f"{symbol}/ADA" for symbol in symbols])+"')"
+        query = f"""  
+        select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
+        ,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h, c.price * a.total_supply as market_cap
+        from (
+            select id, name, symbol, logo_url, total_supply, symbol || '/ADA' as pair
+            from proddb.tokens
+            where symbol in {symbols_str}
+        ) a left join(
+            select close as ada_price
+            from proddb.coin_prices_5m cph
+            where symbol='USDM/ADA'
+                and open_time = {time_now}
+        ) b on true
+        left join(
+            select symbol, price, price - price_24h as change_24h
+            from (
+                select symbol, open_time, close as price, lead(close) over (PARTITION BY symbol ORDER by open_time desc) price_24h, row_number() over (PARTITION BY symbol ORDER by open_time desc) as r
+                from proddb.coin_prices_5m cph
+                where symbol in {pairs_str}
+                    and ((open_time >= {time_24h_ago} - 300 and open_time <= {time_24h_ago} + 300) -- range of 5 minutes for missing data
+                        or open_time = {time_now}
+                    )
+            ) coin
+            where r = 1
+        ) c on a.pair = c.symbol
+        left join(   
+            select symbol, min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
+            from proddb.coin_prices_1h cph
+            where symbol in {pairs_str}
+                and open_time > {time_24h_ago}
+                group by symbol
+            ) d on a.pair = d.symbol
+        """
+        tokens = db.execute(text(query)).fetchall()
+        data += [schemas.TokenMarketInfo.from_record(token) for token in tokens]
+    return data
+
+
 @router.get("/tokens", tags=group_tags, response_model=schemas.TokenList)
 @cache("in-1m")
 def get_tokens(
@@ -238,106 +320,10 @@ def get_tokens(
         offset = n
     if offset + page_size > n:
         page_size = n - offset
-    token_data = [
-        schemas.Token(
-            id=str(token.id) if token.id is not None else "",
-            name=str(token.name) if token.name is not None else "",
-            symbol=str(token.symbol) if token.symbol is not None else "",
-            logo_url=str(token.logo_url) if token.logo_url is not None else "",
-        )
-        for token in tokens[offset : offset + page_size]
-    ]
+    symbols = [token.symbol for token in tokens[offset : offset + page_size]]
+    token_data = _get_token_info_data(symbols)
     # Convert to response format
     return schemas.TokenList(total=n, page=page, tokens=token_data)
-
-
-@cache("in-1m")
-def _get_token_info_data(symbol: str) -> dict:
-    time_now = (int(datetime.now().timestamp()) // 300 - 1) * 300
-    time_24h_ago = time_now - 24 * 60 * 60
-    if symbol == "ADA":
-        symbol = "USDM"
-        query = f"""  
-        select a.*, c.price, c.change_24h 
-        ,d.low_24h low_24h, d.high_24h high_24h, d.volume_24h volume_24h, c.price * a.total_supply as market_cap
-        from (
-            select id, name, symbol, logo_url, total_supply
-            from proddb.tokens
-            where symbol='ADA'
-        ) a left join(
-            select price, price - price_24h as change_24h
-            from (
-                select open_time, close as price, lead(close) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
-                from proddb.coin_prices_5m cph
-                where symbol='USDM/ADA'
-                    and (
-                        (open_time >= {time_24h_ago} - 300 and open_time <= {time_24h_ago} + 300) -- range of 5 minutes for missing data
-                        or open_time = {time_now}
-                    )
-            ) coin
-            where r = 1
-        ) c on TRUE
-        left join(   
-            select min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
-            from proddb.coin_prices_1h cph
-            where symbol='USDM/ADA'
-                and open_time > {time_24h_ago}
-            ) d on TRUE
-        """
-    else:
-        query = f"""  
-        select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
-        ,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h, c.price * a.total_supply as market_cap
-        from (
-            select id, name, symbol, logo_url, total_supply
-            from proddb.tokens
-            where symbol='{symbol}'
-        ) a left join(
-            select close as ada_price
-            from proddb.coin_prices_5m cph
-            where symbol='USDM/ADA'
-                and open_time = {time_now}
-        ) b on true
-        left join(
-            select price, price - price_24h as change_24h
-            from (
-                select open_time, close as price, lead(close) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
-                from proddb.coin_prices_5m cph
-                where symbol='{symbol}/ADA'
-                    and (
-                        open_time >= {time_24h_ago} - 300  -- range of 5 minutes for missing data
-                        or open_time <= {time_24h_ago} + 300
-                        or open_time = {time_now}
-                    )
-            ) coin
-            where r = 1
-        ) c on TRUE
-        left join(   
-            select min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
-            from proddb.coin_prices_1h cph
-            where symbol='{symbol}/ADA'
-                and open_time > {time_24h_ago}
-            ) d on TRUE
-        """
-    db = SessionLocal()
-    try:
-        token = db.execute(text(query)).fetchone()
-    finally:
-        db.close()
-    if token is None or not token:
-        raise HTTPException(status_code=404, detail="Token not found")
-    return {
-        "id": token.id,
-        "name": token.name,
-        "symbol": token.symbol,
-        "logo_url": token.logo_url,
-        "price": token.price,
-        "change_24h": token.change_24h,
-        "low_24h": token.low_24h,
-        "high_24h": token.high_24h,
-        "volume_24h": token.volume_24h,
-        "market_cap": token.market_cap,
-    }
 
 
 @router.get("/tokens/{symbol}", tags=group_tags, response_model=schemas.TokenMarketInfo)
@@ -359,10 +345,10 @@ def get_token_info(
     - volume_24h: Token trade volume in 24h
     """
     symbol = symbol.strip()
-    token_data = _get_token_info_data(symbol)
-    if token_data is None or not token_data:
+    token_data = _get_token_info_data([symbol])
+    if token_data is None or len(token_data) == 0:
         raise HTTPException(status_code=404, detail="Token not found")
-    return schemas.TokenMarketInfo(**token_data)
+    return token_data[0]
 
 
 @router.post("/swaps", tags=group_tags, response_model=schemas.MessageResponse)
