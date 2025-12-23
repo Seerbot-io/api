@@ -38,9 +38,9 @@ def represent_number(number: float) -> str:
 def get_statistics(db: Session = Depends(get_db)) -> Statistics:
     """
     Get platform statistics including:
-    - Number of trading pairs
-    - Total liquidity
-    - Number of transactions
+    - Total number of trading pairs
+    - Total liquidity (USD)
+    - Total number of transactions
     """
 
     query = """
