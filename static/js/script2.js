@@ -44,6 +44,8 @@ function addMessage(type, title, body) {
     let bodyContent = '';
     if (type === 'info' && title === 'Token Info Update' && body.logo_url !== undefined) {
         bodyContent = formatTokenInfoMessage(body);
+    } else if (type === 'info' && title === 'Notice Received' && body.title !== undefined) {
+        bodyContent = formatNoticeMessage(body);
     } else {
         bodyContent = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
     }
@@ -62,6 +64,43 @@ function addMessage(type, title, body) {
     while (messagesDiv.children.length > 50) {
         messagesDiv.removeChild(messagesDiv.lastChild);
     }
+}
+
+function formatNoticeMessage(data) {
+    const iconHtml = data.icon ? 
+        `<div class="notice-icon-container">
+            <img src="${data.icon}" alt="Notice icon" class="notice-icon" onerror="this.style.display='none'">
+        </div>` : '';
+    
+    const typeColors = {
+        'info': '#2196F3',
+        'account': '#FF9800',
+        'signal': '#4CAF50'
+    };
+    const typeColor = typeColors[data.type] || '#666';
+    
+    const metaDataHtml = data.meta_data && Object.keys(data.meta_data).length > 0 ?
+        `<div class="notice-meta">
+            <strong>Metadata:</strong>
+            <pre style="margin: 5px 0; padding: 8px; background: #f5f5f5; border-radius: 4px; font-size: 12px;">${JSON.stringify(data.meta_data, null, 2)}</pre>
+        </div>` : '';
+    
+    return `
+${iconHtml}
+<div class="notice-content">
+    <div class="notice-header-info">
+        <span class="notice-type" style="background: ${typeColor}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase;">${data.type || 'info'}</span>
+        <span class="notice-id" style="color: #666; font-size: 12px;">ID: ${data.id}</span>
+    </div>
+    <div class="notice-title" style="font-size: 16px; font-weight: bold; margin: 10px 0 5px 0; color: #333;">${data.title || 'No title'}</div>
+    <div class="notice-message" style="margin: 5px 0; color: #555; line-height: 1.5;">${data.message || 'No message'}</div>
+    ${metaDataHtml}
+    <div class="notice-dates" style="margin-top: 10px; font-size: 11px; color: #999;">
+        <div>Created: ${data.createdAt || data.created_at || 'N/A'}</div>
+        <div>Updated: ${data.updatedAt || data.updated_at || 'N/A'}</div>
+    </div>
+</div>
+    `.trim();
 }
 
 function formatTokenInfoMessage(data) {
@@ -163,7 +202,6 @@ function updateChannelForm() {
     const noticesForm = document.getElementById('noticesForm');
     const subscribeBtn = document.getElementById('subscribeBtn');
     const unsubscribeBtn = document.getElementById('unsubscribeBtn');
-    const connectNoticesBtn = document.getElementById('connectNoticesBtn');
     
     if (channelType === 'ohlc') {
         barsForm.style.display = 'block';
@@ -171,21 +209,18 @@ function updateChannelForm() {
         noticesForm.style.display = 'none';
         subscribeBtn.style.display = 'inline-block';
         unsubscribeBtn.style.display = 'inline-block';
-        connectNoticesBtn.style.display = 'none';
     } else if (channelType === 'token_info') {
         barsForm.style.display = 'none';
         tokenForm.style.display = 'block';
         noticesForm.style.display = 'none';
         subscribeBtn.style.display = 'inline-block';
         unsubscribeBtn.style.display = 'inline-block';
-        connectNoticesBtn.style.display = 'none';
     } else if (channelType === 'notices') {
         barsForm.style.display = 'none';
         tokenForm.style.display = 'none';
         noticesForm.style.display = 'block';
         subscribeBtn.style.display = 'none';
         unsubscribeBtn.style.display = 'none';
-        connectNoticesBtn.style.display = 'inline-block';
     }
 }
 
@@ -217,6 +252,14 @@ function buildChannel() {
 }
 
 function connect() {
+    const channelType = document.getElementById('channelType').value;
+    
+    // Handle notices WebSocket separately
+    if (channelType === 'notices') {
+        connectNotices();
+        return;
+    }
+    
     const url = document.getElementById('wsUrl').value;
     
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -235,15 +278,8 @@ function connect() {
             addMessage('success', 'Connection', 'WebSocket connected successfully!');
             document.getElementById('connectBtn').disabled = true;
             document.getElementById('disconnectBtn').disabled = false;
-            const channelType = document.getElementById('channelType').value;
-            if (channelType !== 'notices') {
-                document.getElementById('subscribeBtn').disabled = false;
-                document.getElementById('unsubscribeBtn').disabled = false;
-            }
-            const connectNoticesBtn = document.getElementById('connectNoticesBtn');
-            if (connectNoticesBtn && channelType === 'notices') {
-                connectNoticesBtn.disabled = false;
-            }
+            document.getElementById('subscribeBtn').disabled = false;
+            document.getElementById('unsubscribeBtn').disabled = false;
         };
         
         ws.onmessage = function(event) {
@@ -265,10 +301,6 @@ function connect() {
                     addMessage('info', 'Subscription', data);
                 } else if (data.error) {
                     addMessage('error', 'Error', data);
-                } else if (data.type === 'notice' && data.data) {
-                    // This is a notice update
-                    const noticeData = data.data;
-                    addMessage('info', 'Notice', formatNoticeMessage(noticeData));
                 } else if (data.channel && data.type && data.data) {
                     // This is a channel update
                     if (data.type === 'ohlc') {
@@ -318,10 +350,6 @@ function connect() {
             document.getElementById('disconnectBtn').disabled = true;
             document.getElementById('subscribeBtn').disabled = true;
             document.getElementById('unsubscribeBtn').disabled = true;
-            const connectNoticesBtn = document.getElementById('connectNoticesBtn');
-            if (connectNoticesBtn) {
-                connectNoticesBtn.disabled = true;
-            }
             subscriptions.clear();
             updateSubscriptionsList();
         };
@@ -333,10 +361,88 @@ function connect() {
 }
 
 function disconnect() {
+    const channelType = document.getElementById('channelType').value;
+    
+    // Handle notices WebSocket separately
+    if (channelType === 'notices') {
+        disconnectNotices();
+        return;
+    }
+    
     if (ws) {
         ws.close();
         ws = null;
     }
+}
+
+function connectNotices() {
+    if (noticesWs && noticesWs.readyState === WebSocket.OPEN) {
+        addMessage('error', 'Error', 'Already connected to notices!');
+        return;
+    }
+    
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const lastNoticeId = document.getElementById('lastNoticeId').value || '0';
+    const url = `${protocol}//${host}/user/notices/ws?last_notice_id=${lastNoticeId}`;
+    
+    updateStatus('Connecting to notices...', 'connecting');
+    addMessage('info', 'Connection', `Connecting to notices WebSocket: ${url}...`);
+    
+    try {
+        noticesWs = new WebSocket(url);
+        
+        noticesWs.onopen = function() {
+            updateStatus('Connected (Notices)', 'connected');
+            addMessage('success', 'Connection', 'Notices WebSocket connected successfully!');
+            document.getElementById('connectBtn').disabled = true;
+            document.getElementById('disconnectBtn').disabled = false;
+        };
+        
+        noticesWs.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'notice' && data.data) {
+                    const notice = data.data;
+                    addMessage('info', 'Notice Received', {
+                        id: notice.id,
+                        type: notice.type,
+                        icon: notice.icon,
+                        title: notice.title,
+                        message: notice.message,
+                        createdAt: notice.createdAt || notice.created_at,
+                        updatedAt: notice.updatedAt || notice.updated_at,
+                        meta_data: notice.meta_data
+                    });
+                } else {
+                    addMessage('info', 'Message', data);
+                }
+            } catch (e) {
+                console.error('Error processing notice message:', e, event.data);
+                addMessage('error', 'Parse Error', `Failed to process message: ${e.message}\n\nRaw data: ${event.data}`);
+            }
+        };
+        
+        noticesWs.onerror = function(error) {
+            addMessage('error', 'WebSocket Error', 'Notices connection error occurred');
+            console.error('Notices WebSocket error:', error);
+        };
+        
+        noticesWs.onclose = function(event) {
+            updateStatus('Disconnected', 'disconnected');
+            addMessage('info', 'Connection', `Notices WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('disconnectBtn').disabled = true;
+        };
+        
+    } catch (error) {
+        updateStatus('Error', 'disconnected');
+        addMessage('error', 'Connection Error', error.message);
+    }
+}
+
+function disconnectNotices() {
     if (noticesWs) {
         noticesWs.close();
         noticesWs = null;
@@ -344,6 +450,13 @@ function disconnect() {
 }
 
 function subscribe() {
+    const channelType = document.getElementById('channelType').value;
+    
+    if (channelType === 'notices') {
+        addMessage('info', 'Info', 'Notices WebSocket automatically receives all notices. No subscription needed.');
+        return;
+    }
+    
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         addMessage('error', 'Error', 'Not connected!');
         return;
@@ -366,6 +479,13 @@ function subscribe() {
 }
 
 function unsubscribe() {
+    const channelType = document.getElementById('channelType').value;
+    
+    if (channelType === 'notices') {
+        addMessage('info', 'Info', 'Notices WebSocket automatically receives all notices. Disconnect to stop receiving.');
+        return;
+    }
+    
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         addMessage('error', 'Error', 'Not connected!');
         return;
@@ -396,115 +516,6 @@ function unsubscribeChannel(channel) {
     addMessage('info', 'Sent', `Unsubscribe: ${JSON.stringify(message, null, 2)}`);
 }
 
-function formatNoticeMessage(data) {
-    const iconHtml = data.icon ? 
-        `<div class="notice-icon-container" style="margin-bottom: 10px;">
-            <img src="${data.icon}" alt="Notice icon" style="max-width: 48px; max-height: 48px; border-radius: 4px;" onerror="this.style.display='none'">
-        </div>` : '';
-    
-    const metaDataHtml = data.meta_data && Object.keys(data.meta_data).length > 0 ?
-        `<div class="notice-meta" style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px;">
-            <strong>Metadata:</strong>
-            <pre style="margin: 5px 0 0 0; font-size: 12px;">${JSON.stringify(data.meta_data, null, 2)}</pre>
-        </div>` : '';
-    
-    const typeColors = {
-        'info': '#2196F3',
-        'account': '#FF9800',
-        'signal': '#4CAF50'
-    };
-    const typeColor = typeColors[data.type] || '#666';
-    
-    return `
-${iconHtml}
-<div class="notice-content">
-    <div style="display: flex; align-items: center; margin-bottom: 8px;">
-        <span style="display: inline-block; padding: 4px 8px; background: ${typeColor}; color: white; border-radius: 4px; font-size: 11px; font-weight: bold; margin-right: 8px;">${data.type.toUpperCase()}</span>
-        <span style="font-weight: bold; font-size: 16px;">${data.title || 'No Title'}</span>
-    </div>
-    <div style="color: #333; line-height: 1.5; margin-bottom: 8px;">${data.message || 'No message'}</div>
-    <div style="font-size: 12px; color: #666; margin-top: 8px;">
-        <div>ID: ${data.id}</div>
-        <div>Created: ${data.createdAt ? new Date(data.createdAt).toLocaleString() : 'N/A'}</div>
-        <div>Updated: ${data.updatedAt ? new Date(data.updatedAt).toLocaleString() : 'N/A'}</div>
-    </div>
-    ${metaDataHtml}
-</div>
-    `.trim();
-}
-
-function getNoticesWebSocketUrl() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const userId = document.getElementById('noticesUserId').value.trim();
-    
-    if (!userId) {
-        addMessage('error', 'Error', 'Please enter a User ID');
-        return null;
-    }
-    
-    return `${protocol}//${host}/notices/ws?user_id=${encodeURIComponent(userId)}`;
-}
-
-function connectNotices() {
-    const url = getNoticesWebSocketUrl();
-    
-    if (!url) {
-        return;
-    }
-    
-    if (noticesWs && noticesWs.readyState === WebSocket.OPEN) {
-        addMessage('error', 'Error', 'Notices WebSocket already connected!');
-        return;
-    }
-    
-    addMessage('info', 'Connection', `Connecting to notices WebSocket: ${url}...`);
-    
-    try {
-        noticesWs = new WebSocket(url);
-        
-        noticesWs.onopen = function() {
-            addMessage('success', 'Notices Connection', 'Notices WebSocket connected successfully!');
-            document.getElementById('connectNoticesBtn').disabled = true;
-            document.getElementById('connectNoticesBtn').textContent = 'Connected';
-        };
-        
-        noticesWs.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                
-                if (data.error) {
-                    addMessage('error', 'Notices Error', data);
-                } else if (data.type === 'notice' && data.data) {
-                    const noticeData = data.data;
-                    addMessage('info', 'Notice Received', formatNoticeMessage(noticeData));
-                } else {
-                    addMessage('info', 'Notices Message', data);
-                }
-            } catch (e) {
-                console.error('Error processing notice message:', e, event.data);
-                addMessage('error', 'Parse Error', `Failed to process notice message: ${e.message}\n\nRaw data: ${event.data}`);
-            }
-        };
-        
-        noticesWs.onerror = function(error) {
-            addMessage('error', 'Notices WebSocket Error', 'Connection error occurred');
-            console.error('Notices WebSocket error:', error);
-        };
-        
-        noticesWs.onclose = function(event) {
-            addMessage('info', 'Notices Connection', `Notices WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
-            document.getElementById('connectNoticesBtn').disabled = false;
-            document.getElementById('connectNoticesBtn').textContent = 'Connect Notices';
-            noticesWs = null;
-        };
-        
-    } catch (error) {
-        addMessage('error', 'Notices Connection Error', error.message);
-    }
-}
-
-
 // Allow Enter key to trigger actions
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('wsUrl').addEventListener('keypress', function(e) {
@@ -522,13 +533,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (tokenSymbolEl) {
         tokenSymbolEl.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') subscribe();
-        });
-    }
-    
-    const noticesUserIdEl = document.getElementById('noticesUserId');
-    if (noticesUserIdEl) {
-        noticesUserIdEl.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') connectNotices();
         });
     }
     

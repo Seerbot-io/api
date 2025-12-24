@@ -18,11 +18,11 @@ group_tags: List[str | Enum] = ["user"]
 handle notice send to user via websocket / api
 
 api: 
-- input: wallet_address, type(optional), limit default 10, offset default 0
+- input: type(optional), limit default 10, offset default 0
 - output: notice
 
 websocket:
-- input: wallet_address, last_notice_id default 0
+- input: last_notice_id default 0
 - output: notice
 
 table: chatbot.notice -> notice
@@ -49,6 +49,8 @@ def get_notices(
 ) -> NoticeListResponse:
     """
     Get notices, currently all notices are global and sent to all users.
+
+    Returns all global notices (all notices are sent to all users).
 
     Query Parameters:
     - type: Optional filter by notice type ("info", "account", "signal", default: "all")
@@ -101,15 +103,14 @@ def get_notices(
 
 
 @router.websocket("/notices/ws")
-async def notices_websocket(websocket: WebSocket, wallet_address: str , last_notice_id: int = Query(default=0, ge=0, description="Last notice ID to receive notices for, default: 0, min: 0")):
+async def notices_websocket(websocket: WebSocket, last_notice_id: int = Query(default=0, ge=0, description="Last notice ID to receive notices for, default: 0, min: 0")):
     """
     WebSocket endpoint for real-time notice updates.
 
     Query Parameters:
-    - wallet_address: Wallet address to receive notices for
     - last_notice_id: Last notice ID to receive notices for
     On connection:
-    - Sends all existing notices for the user
+    - Sends all existing notices for all users
 
     Then:
     - Polls database every 5 seconds for new notices
@@ -205,9 +206,9 @@ async def notices_websocket(websocket: WebSocket, wallet_address: str , last_not
             db.commit()
 
     except WebSocketDisconnect:
-        print(f"WebSocket disconnected for wallet_address: {wallet_address}")
+        print("WebSocket disconnected for user notices websocket")
     except Exception as e:
-        print(f"WebSocket error for wallet_address {wallet_address}: {e}")
+        print(f"WebSocket error for user notices websocket: {e}")
         try:
             await websocket.send_json({"error": str(e)})
         except Exception:

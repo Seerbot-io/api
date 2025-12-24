@@ -66,10 +66,15 @@
             
             <div id="noticesForm" style="display: none;">
                 <div class="form-group">
-                    <label>User ID (for notices)</label>
-                    <input type="text" id="noticesUserId" value="" placeholder="Enter user ID (UUID)">
+                    <label>Last Notice ID (optional)</label>
+                    <input type="number" id="lastNoticeId" value="0" placeholder="0" min="0">
                     <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
-                        User ID (UUID) to receive notices for. Notices WebSocket uses a separate endpoint.
+                        Only receive notices with ID greater than this value (default: 0 = all notices)
+                    </small>
+                </div>
+                <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                    <small style="color: #1976d2;">
+                        <strong>Note:</strong> Notices WebSocket connects directly to <code>/user/notices/ws</code> and doesn't use subscribe/unsubscribe actions. It automatically receives all notices.
                     </small>
                 </div>
             </div>
@@ -77,7 +82,6 @@
             <div class="button-group">
                 <button id="subscribeBtn" class="btn-subscribe" onclick="subscribe()" disabled>Subscribe</button>
                 <button id="unsubscribeBtn" class="btn-unsubscribe" onclick="unsubscribe()" disabled>Unsubscribe</button>
-                <button id="connectNoticesBtn" class="btn-connect" onclick="connectNotices()" disabled style="display: none;">Connect Notices</button>
             </div>
         </div>
         
