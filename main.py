@@ -18,6 +18,7 @@ from app.api.endpoints import (
     charting,
     health,
     market,
+    user,
     web_content,
     websocket,
 )
@@ -124,6 +125,7 @@ app.include_router(charting.router, prefix="/charting")
 app.include_router(web_content.router, prefix="/content")
 app.include_router(websocket.router)
 app.include_router(market.router, prefix="/market")
+app.include_router(user.router, prefix="/user")
 
 
 if __name__ == "__main__":

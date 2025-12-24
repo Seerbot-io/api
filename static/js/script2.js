@@ -1,4 +1,5 @@
 let ws = null;
+let noticesWs = null; // Separate WebSocket for notices
 let subscriptions = new Map(); // Map<channel, {type, params}>
 
 // Auto-detect WebSocket URL based on current page location
@@ -159,13 +160,32 @@ function updateChannelForm() {
     const channelType = document.getElementById('channelType').value;
     const barsForm = document.getElementById('barsForm');
     const tokenForm = document.getElementById('tokenForm');
+    const noticesForm = document.getElementById('noticesForm');
+    const subscribeBtn = document.getElementById('subscribeBtn');
+    const unsubscribeBtn = document.getElementById('unsubscribeBtn');
+    const connectNoticesBtn = document.getElementById('connectNoticesBtn');
     
     if (channelType === 'ohlc') {
         barsForm.style.display = 'block';
         tokenForm.style.display = 'none';
+        noticesForm.style.display = 'none';
+        subscribeBtn.style.display = 'inline-block';
+        unsubscribeBtn.style.display = 'inline-block';
+        connectNoticesBtn.style.display = 'none';
     } else if (channelType === 'token_info') {
         barsForm.style.display = 'none';
         tokenForm.style.display = 'block';
+        noticesForm.style.display = 'none';
+        subscribeBtn.style.display = 'inline-block';
+        unsubscribeBtn.style.display = 'inline-block';
+        connectNoticesBtn.style.display = 'none';
+    } else if (channelType === 'notices') {
+        barsForm.style.display = 'none';
+        tokenForm.style.display = 'none';
+        noticesForm.style.display = 'block';
+        subscribeBtn.style.display = 'none';
+        unsubscribeBtn.style.display = 'none';
+        connectNoticesBtn.style.display = 'inline-block';
     }
 }
 
@@ -215,8 +235,15 @@ function connect() {
             addMessage('success', 'Connection', 'WebSocket connected successfully!');
             document.getElementById('connectBtn').disabled = true;
             document.getElementById('disconnectBtn').disabled = false;
-            document.getElementById('subscribeBtn').disabled = false;
-            document.getElementById('unsubscribeBtn').disabled = false;
+            const channelType = document.getElementById('channelType').value;
+            if (channelType !== 'notices') {
+                document.getElementById('subscribeBtn').disabled = false;
+                document.getElementById('unsubscribeBtn').disabled = false;
+            }
+            const connectNoticesBtn = document.getElementById('connectNoticesBtn');
+            if (connectNoticesBtn && channelType === 'notices') {
+                connectNoticesBtn.disabled = false;
+            }
         };
         
         ws.onmessage = function(event) {
@@ -238,6 +265,10 @@ function connect() {
                     addMessage('info', 'Subscription', data);
                 } else if (data.error) {
                     addMessage('error', 'Error', data);
+                } else if (data.type === 'notice' && data.data) {
+                    // This is a notice update
+                    const noticeData = data.data;
+                    addMessage('info', 'Notice', formatNoticeMessage(noticeData));
                 } else if (data.channel && data.type && data.data) {
                     // This is a channel update
                     if (data.type === 'ohlc') {
@@ -287,6 +318,10 @@ function connect() {
             document.getElementById('disconnectBtn').disabled = true;
             document.getElementById('subscribeBtn').disabled = true;
             document.getElementById('unsubscribeBtn').disabled = true;
+            const connectNoticesBtn = document.getElementById('connectNoticesBtn');
+            if (connectNoticesBtn) {
+                connectNoticesBtn.disabled = true;
+            }
             subscriptions.clear();
             updateSubscriptionsList();
         };
@@ -301,6 +336,10 @@ function disconnect() {
     if (ws) {
         ws.close();
         ws = null;
+    }
+    if (noticesWs) {
+        noticesWs.close();
+        noticesWs = null;
     }
 }
 
@@ -357,6 +396,115 @@ function unsubscribeChannel(channel) {
     addMessage('info', 'Sent', `Unsubscribe: ${JSON.stringify(message, null, 2)}`);
 }
 
+function formatNoticeMessage(data) {
+    const iconHtml = data.icon ? 
+        `<div class="notice-icon-container" style="margin-bottom: 10px;">
+            <img src="${data.icon}" alt="Notice icon" style="max-width: 48px; max-height: 48px; border-radius: 4px;" onerror="this.style.display='none'">
+        </div>` : '';
+    
+    const metaDataHtml = data.meta_data && Object.keys(data.meta_data).length > 0 ?
+        `<div class="notice-meta" style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px;">
+            <strong>Metadata:</strong>
+            <pre style="margin: 5px 0 0 0; font-size: 12px;">${JSON.stringify(data.meta_data, null, 2)}</pre>
+        </div>` : '';
+    
+    const typeColors = {
+        'info': '#2196F3',
+        'account': '#FF9800',
+        'signal': '#4CAF50'
+    };
+    const typeColor = typeColors[data.type] || '#666';
+    
+    return `
+${iconHtml}
+<div class="notice-content">
+    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+        <span style="display: inline-block; padding: 4px 8px; background: ${typeColor}; color: white; border-radius: 4px; font-size: 11px; font-weight: bold; margin-right: 8px;">${data.type.toUpperCase()}</span>
+        <span style="font-weight: bold; font-size: 16px;">${data.title || 'No Title'}</span>
+    </div>
+    <div style="color: #333; line-height: 1.5; margin-bottom: 8px;">${data.message || 'No message'}</div>
+    <div style="font-size: 12px; color: #666; margin-top: 8px;">
+        <div>ID: ${data.id}</div>
+        <div>Created: ${data.createdAt ? new Date(data.createdAt).toLocaleString() : 'N/A'}</div>
+        <div>Updated: ${data.updatedAt ? new Date(data.updatedAt).toLocaleString() : 'N/A'}</div>
+    </div>
+    ${metaDataHtml}
+</div>
+    `.trim();
+}
+
+function getNoticesWebSocketUrl() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const userId = document.getElementById('noticesUserId').value.trim();
+    
+    if (!userId) {
+        addMessage('error', 'Error', 'Please enter a User ID');
+        return null;
+    }
+    
+    return `${protocol}//${host}/notices/ws?user_id=${encodeURIComponent(userId)}`;
+}
+
+function connectNotices() {
+    const url = getNoticesWebSocketUrl();
+    
+    if (!url) {
+        return;
+    }
+    
+    if (noticesWs && noticesWs.readyState === WebSocket.OPEN) {
+        addMessage('error', 'Error', 'Notices WebSocket already connected!');
+        return;
+    }
+    
+    addMessage('info', 'Connection', `Connecting to notices WebSocket: ${url}...`);
+    
+    try {
+        noticesWs = new WebSocket(url);
+        
+        noticesWs.onopen = function() {
+            addMessage('success', 'Notices Connection', 'Notices WebSocket connected successfully!');
+            document.getElementById('connectNoticesBtn').disabled = true;
+            document.getElementById('connectNoticesBtn').textContent = 'Connected';
+        };
+        
+        noticesWs.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.error) {
+                    addMessage('error', 'Notices Error', data);
+                } else if (data.type === 'notice' && data.data) {
+                    const noticeData = data.data;
+                    addMessage('info', 'Notice Received', formatNoticeMessage(noticeData));
+                } else {
+                    addMessage('info', 'Notices Message', data);
+                }
+            } catch (e) {
+                console.error('Error processing notice message:', e, event.data);
+                addMessage('error', 'Parse Error', `Failed to process notice message: ${e.message}\n\nRaw data: ${event.data}`);
+            }
+        };
+        
+        noticesWs.onerror = function(error) {
+            addMessage('error', 'Notices WebSocket Error', 'Connection error occurred');
+            console.error('Notices WebSocket error:', error);
+        };
+        
+        noticesWs.onclose = function(event) {
+            addMessage('info', 'Notices Connection', `Notices WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
+            document.getElementById('connectNoticesBtn').disabled = false;
+            document.getElementById('connectNoticesBtn').textContent = 'Connect Notices';
+            noticesWs = null;
+        };
+        
+    } catch (error) {
+        addMessage('error', 'Notices Connection Error', error.message);
+    }
+}
+
+
 // Allow Enter key to trigger actions
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('wsUrl').addEventListener('keypress', function(e) {
@@ -374,6 +522,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (tokenSymbolEl) {
         tokenSymbolEl.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') subscribe();
+        });
+    }
+    
+    const noticesUserIdEl = document.getElementById('noticesUserId');
+    if (noticesUserIdEl) {
+        noticesUserIdEl.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') connectNotices();
         });
     }
     

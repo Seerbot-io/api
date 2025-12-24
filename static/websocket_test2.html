@@ -29,6 +29,7 @@
                 <select id="channelType" onchange="updateChannelForm()">
                     <option value="ohlc">ohlc</option>
                     <option value="token_info">token_info</option>
+                    <option value="notices">notices</option>
                 </select>
             </div>
             
@@ -63,9 +64,20 @@
                 </div>
             </div>
             
+            <div id="noticesForm" style="display: none;">
+                <div class="form-group">
+                    <label>User ID (for notices)</label>
+                    <input type="text" id="noticesUserId" value="" placeholder="Enter user ID (UUID)">
+                    <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                        User ID (UUID) to receive notices for. Notices WebSocket uses a separate endpoint.
+                    </small>
+                </div>
+            </div>
+            
             <div class="button-group">
                 <button id="subscribeBtn" class="btn-subscribe" onclick="subscribe()" disabled>Subscribe</button>
                 <button id="unsubscribeBtn" class="btn-unsubscribe" onclick="unsubscribe()" disabled>Unsubscribe</button>
+                <button id="connectNoticesBtn" class="btn-connect" onclick="connectNotices()" disabled style="display: none;">Connect Notices</button>
             </div>
         </div>
         

@@ -5,6 +5,7 @@ from enum import Enum
 from typing import List, Optional
 
 from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
+import requests
 from sqlalchemy import or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -385,13 +386,13 @@ def create_swap(
     try:
         row = Swap(
             transaction_id=swap_info["transaction_id"],
-            user_id=swap_info["user"],
+            wallet_address=swap_info["user"],
             from_token=swap_info["token_in"],
             from_amount=swap_info["amount_in"],
             to_token=swap_info["token_out"],
             to_amount=swap_info["amount_out"],
             price=swap_info["price"],
-            value=swap_info["value"],
+            usd_value=swap_info["usd_value"],
             timestamp=swap_info["timestamp"],
             fee=swap_info["fee"],
             fee_price=swap_info["fee_price"],
@@ -418,7 +419,7 @@ def get_swaps(
     to_token: Optional[str] = None,
     from_time: Optional[int] = None,
     to_time: Optional[int] = None,
-    user_id: Optional[str] = None,
+    user_id: Optional[str] = None,  # deprecated, use wallet_address instead
     db: Session = Depends(get_db),
 ) -> schemas.SwapListResponse:
     """Retrieves all swap transactions with pagination and filters.
@@ -429,7 +430,7 @@ def get_swaps(
     - to_token: Filter by destination token (optional)
     - from_time: Start timestamp filter in seconds (optional)
     - to_time: End timestamp filter in seconds (optional)
-    - user_id: Filter by user ID (optional)
+    - user_id: Filter by wallet address (optional)
 
     OUTPUT:
     - transactions: Array of transaction objects
@@ -447,9 +448,9 @@ def get_swaps(
 
     # Apply filters
     if from_token:
-        query = query.filter(Swap.from_token.ilike(f"%{from_token.strip()}%"))
+        query = query.filter(Swap.from_token == from_token.strip())
     if to_token:
-        query = query.filter(Swap.to_token.ilike(f"%{to_token.strip()}%"))
+        query = query.filter(Swap.to_token == to_token.strip())
     if from_time:
         query = query.filter(Swap.timestamp >= from_time)
     if to_time:
@@ -536,12 +537,12 @@ def _fetch_top_traders_data(
     where_clause = " AND ".join(where_conditions)
     query = f"""
         SELECT 
-            user_id,
-            COALESCE(SUM(value), 0) as total_volume,
+            wallet_address,
+            COALESCE(SUM(usd_value), 0) as total_volume,
             COUNT(transaction_id) as total_trades
         FROM proddb.swap_transactions
-        WHERE {where_clause}
-        GROUP BY user_id
+        WHERE status = 'completed' and {where_clause} 
+        GROUP BY wallet_address
         ORDER BY {metric_lower} DESC
         {limit_str}
         {offset_str}
@@ -557,7 +558,7 @@ def _fetch_top_traders_data(
     for idx, row in enumerate(results, start=1):
         traders.append(
             {
-                "user_id": row.user_id or "",
+                "user_id": row.wallet_address or "",
                 "total_volume": float(row.total_volume) if row.total_volume else 0.0,
                 "total_trades": int(row.total_trades) if row.total_trades else 0,
                 "rank": idx,
@@ -1236,3 +1237,33 @@ def get_trend(
             )
         )
     return schemas.TrendResponse(uptrend=uptrend_list, downtrend=downtrend_list)
+
+
+@router.get(
+    "/predict_signal/{indicator}/{signal}",
+    tags=group_tags,
+    response_model=schemas.TrendResponse,
+)
+@cache("in-5m")
+def get_predict_signal(
+    indicator: str,
+    signal: str,
+    db: Session = Depends(get_db),
+) -> schemas.TrendResponse:
+    return None
+    # schemas.TrendResponse(uptrend=uptrend_list, downtrend=downtrend_list)
+
+
+@router.get(
+    "/predict_signal/{interval}", tags=group_tags, response_model=schemas.Validate
+)
+@cache("in-5m")
+def get_predict_validate(
+    interval: str,
+    limit: int,
+    db: Session = Depends(get_db),
+) -> schemas.TrendResponse:
+    url = "https://api.vistia.co/api/v2_2/ai-analysis/predict-validate?interval=3M&limit=100000"
+    response = requests.get(url)
+    data = schemas.Validate.model_validate_json(response.json())
+    return data

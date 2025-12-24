@@ -8,7 +8,7 @@ class Swap(Base):
     Example:
     {
         "transaction_id": "4c6ff99c8328...c8d053659",
-        "user_id": "addr1qxy99g3k...useraddress",
+        "wallet_address": "addr1qxy99g3k...useraddress",
         "from_token": "USDM",
         "to_token": "ADA",
         "from_amount": 0.1,
@@ -27,13 +27,13 @@ class Swap(Base):
     __table_args__ = {"schema": "proddb"}
 
     transaction_id = Column(String(255), primary_key=True)
-    user_id = Column(String(255), nullable=False)
+    wallet_address = Column(String(255), nullable=False)
     from_token = Column(String(255), nullable=False)
     to_token = Column(String(255), nullable=False)
     from_amount = Column(Float, nullable=False)
     to_amount = Column(Float, nullable=False)
     price = Column(Float, nullable=False)
-    value = Column(Float, nullable=False)
+    usd_value = Column(Float, nullable=False)
     timestamp = Column(BigInteger, nullable=False)
     fee = Column(Float, nullable=False)
     fee_price = Column(Float, nullable=False)
