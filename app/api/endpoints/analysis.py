@@ -1303,10 +1303,10 @@ def get_predict_signal(
 ) -> schemas.SignalResponse:
     if indicator == "adx":
         predict_up, predict_down = _get_signal_adx()
-    # elif indicator == "rsi":
-    #     predict_up, predict_down = _get_signal_rsi()
-    # elif indicator == "psar":
-    #     predict_up, predict_down = _get_signal_psar()
+    elif indicator == "rsi":
+        predict_up, predict_down = _get_signal_rsi()
+    elif indicator == "psar":
+        predict_up, predict_down = _get_signal_psar()
     else:
         raise HTTPException(status_code=400, detail=f"Invalid indicator: {indicator}")
     
@@ -1318,3 +1318,44 @@ def get_predict_signal(
     #     return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_down))
     # else:
     #     raise HTTPException(status_code=400, detail=f"Invalid signal: {signal}")
+
+# todo: fix this
+# - [ ] implement predict_signal
+# - [ ] fix icon url in get_predictions
+@router.get("/predictions", tags=group_tags, response_model=List[schemas.Prediction])
+@cache("in-5m")
+def get_predictions(
+    db: Session = Depends(get_db),
+) -> List[schemas.Prediction]:
+    """
+    Retrieves prediction data for a specific trading pair.
+    OUTPUT:
+    - pair: Trading pair symbol (e.g., 'ETH/ADA')
+    - current_price: Current price of the trading pair
+    - predict_price: Predicted price of the trading pair
+    - change_rate: Predicted change percentage between current and predicted price
+    """
+
+    data = [{
+        "icon": "https://assets.coingecko.com/coins/images/279/small/ethereum.png?1595348880",
+        "pair": "ETH/ADA", 
+        "current_price": 8.33636, 
+        "predict_price": 8.40000,
+        "change_rate": 0.100768
+    },
+    {
+        "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png?1547034860",
+        "pair": "USDM/ADA", 
+        "current_price": 2.82, 
+        "predict_price": 2.83,
+        "change_rate": 0.294
+    },
+    {
+        "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png?1547034860",
+        "pair": "SNEK/ADA", 
+        "current_price": 0.00265667166, 
+        "predict_price": 0.0026311,
+        "change_rate": -0.0096
+    }]  
+    response = [schemas.Prediction(**item) for item in data]
+    return response

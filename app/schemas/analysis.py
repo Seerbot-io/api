@@ -6,42 +6,15 @@ from app.schemas.my_base_model import CustomBaseModel
 
 
 class Prediction(CustomBaseModel):
-    symbol: str = ""
-    date: str = ""
-    price: float = 0
-    prediction: float = 0
-    price_change: float = 0
+    icon: str = ""
+    pair: str = ""
+    # update_time: str = ""
+    # target_time: str = ""
+    current_price: float = 0
+    predict_price: float = 0
+    change_rate: float = 0
 
-    @field_validator("price")
-    def round_price(cls, v: float) -> float:
-        return round(v, 6)
-
-    @field_validator("prediction")
-    def round_prediction(cls, v: float) -> float:
-        return round(v, 6)
-
-    @field_validator("price_change")
-    def round_pc(cls, v: float) -> float:
-        return round(v, 6)
-
-
-class PredictionV2(CustomBaseModel):
-    symbol: str = ""
-    update_time: str = ""
-    target_time: str = ""
-    price: float = 0
-    prediction: float = 0
-    price_change: float = 0
-
-    @field_validator("price")
-    def round_price(cls, v: float) -> float:
-        return round(v, 6)
-
-    @field_validator("prediction")
-    def round_prediction(cls, v: float) -> float:
-        return round(v, 6)
-
-    @field_validator("price_change")
+    @field_validator("change_rate")
     def round_pc(cls, v: float) -> float:
         return round(v, 6)
 
