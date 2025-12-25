@@ -45,8 +45,8 @@ class NoticeResponse(CustomBaseModel):
     updated_at: datetime = datetime.now()
     meta_data: Optional[Dict[str, Any]] = None
 
-    def model_dump(self, by_alias: bool = True) -> Dict[str, Any]:
-        data = super().model_dump(by_alias=by_alias)
+    def model_dump(self, **kwargs: Any) -> Dict[str, Any]:  # type: ignore[override]
+        data = super().model_dump(**kwargs)
         # data["meta_data"] = json.loads(data["meta_data"]) if data["meta_data"] else {}
         data["created_at"] = data["created_at"].isoformat()
         data["updated_at"] = data["updated_at"].isoformat()
@@ -62,7 +62,9 @@ class NoticeListResponse(CustomBaseModel):
     offset: int = 0
     order: str = "desc"
 
-    def model_dump(self, by_alias: bool = True) -> Dict[str, Any]:
-        data = super().model_dump(by_alias=by_alias)
-        data["notices"] = [notice.model_dump(by_alias=by_alias) for notice in self.notices]
+    def model_dump(self, **kwargs: Any) -> Dict[str, Any]:  # type: ignore[override]
+        data = super().model_dump(**kwargs)
+        data["notices"] = [
+            notice.model_dump(**kwargs) for notice in self.notices
+        ]
         return data

@@ -573,9 +573,7 @@ async def handle_notices(
             "data": message,
         }
     except Exception as e:
-        print(
-            f"Error querying notices data (channel {subscription.channel}): {e}"
-        )
+        print(f"Error querying notices data (channel {subscription.channel}): {e}")
         await websocket.send_json(
             {"error": "failed to get notices data", "channel": subscription.channel}
         )

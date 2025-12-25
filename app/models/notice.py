@@ -38,6 +38,4 @@ class Notice(Base):
         onupdate=func.now(),
         nullable=False,
     )
-    meta_data = Column(
-        JSONB, nullable=True
-    )
+    meta_data = Column(JSONB, nullable=True)

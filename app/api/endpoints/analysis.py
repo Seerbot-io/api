@@ -1250,18 +1250,16 @@ def get_predict_signal(
     signal: str,
     db: Session = Depends(get_db),
 ) -> schemas.TrendResponse:
-    return None
+    return schemas.TrendResponse(uptrend=[], downtrend=[])
     # schemas.TrendResponse(uptrend=uptrend_list, downtrend=downtrend_list)
 
 
-@router.get(
-    "/predict_signal", tags=group_tags, response_model=schemas.Validate
-)
+@router.get("/predict_signal", tags=group_tags, response_model=schemas.Validate)
 @cache("in-5m")
 def get_predict_validate(
     interval: str = "1h",
     db: Session = Depends(get_db),
-) -> schemas.TrendResponse:
+) -> schemas.Validate:
     """
     - interval: 5m, 1h, 4h, 1d (default 1h)
     """

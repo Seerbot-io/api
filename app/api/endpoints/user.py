@@ -1,5 +1,6 @@
+from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from fastapi import Depends, Query, status
 from sqlalchemy.orm import Session
@@ -33,7 +34,15 @@ columns:
     meta_data: dict or json (optional)
 """
 
-def _get_notices(type: Optional[str] = None, limit: Optional[int] = 10, offset: Optional[int] = 0, order: str = "desc", after_id: Optional[int] = None, db = SessionLocal()) -> List[NoticeResponse]:
+
+def _get_notices(
+    type: Optional[str] = None,
+    limit: Optional[int] = 10,
+    offset: Optional[int] = 0,
+    order: str = "desc",
+    after_id: Optional[int] = None,
+    db=SessionLocal(),
+) -> List[NoticeResponse]:
     # Filter by type if provided
     query = db.query(Notice)
     if type:
@@ -54,14 +63,14 @@ def _get_notices(type: Optional[str] = None, limit: Optional[int] = 10, offset: 
     # Convert to response models
     notice_responses = [
         NoticeResponse(
-            id=notice.id,
-            type=notice.type,
-            icon=notice.icon,
-            title=notice.title,
-            message=notice.message,
-            created_at=notice.created_at,
-            updated_at=notice.updated_at,
-            meta_data=notice.meta_data if notice.meta_data else {},
+            id=cast(int, notice.id),
+            type=cast(str, notice.type),
+            icon=cast(Optional[str], notice.icon),
+            title=cast(str, notice.title),
+            message=cast(str, notice.message),
+            created_at=cast(datetime, notice.created_at),
+            updated_at=cast(datetime, notice.updated_at),
+            meta_data=cast(Optional[Dict[str, Any]], notice.meta_data),
         )
         for notice in notices
     ]
@@ -75,11 +84,29 @@ def _get_notices(type: Optional[str] = None, limit: Optional[int] = 10, offset: 
     status_code=status.HTTP_200_OK,
 )
 def get_notices(
-    type: Optional[str] = Query(default="all", description="Filter by notice type: info, account, signal, default: all"),
-    limit: int = Query(default=10, ge=1, le=100, description="Maximum number of notices to return, default: 10, max: 100"),
-    offset: int = Query(default=0, ge=0, description="Number of notices to skip for pagination, default: 0"),
-    order: str = Query(default="desc", description="Order by: desc, asc, default: desc"),
-    after_id: int = Query(default=None, ge=0, description="ID of the last notice to return, default: None, min: 0"),
+    type: Optional[str] = Query(
+        default="all",
+        description="Filter by notice type: info, account, signal, default: all",
+    ),
+    limit: int = Query(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum number of notices to return, default: 10, max: 100",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of notices to skip for pagination, default: 0",
+    ),
+    order: str = Query(
+        default="desc", description="Order by: desc, asc, default: desc"
+    ),
+    after_id: int = Query(
+        default=None,
+        ge=0,
+        description="ID of the last notice to return, default: None, min: 0",
+    ),
     db: Session = Depends(get_db),
 ) -> NoticeListResponse:
     """
