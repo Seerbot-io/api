@@ -241,3 +241,9 @@ class TrendResponse(CustomBaseModel):
 
     uptrend: List[TrendPair] = Field(default_factory=list)
     downtrend: List[TrendPair] = Field(default_factory=list)
+
+class SignalResponse(CustomBaseModel):
+    indicator: str = ""  # rsi7, rsi14, adx14, psar
+    signal: str = ""  # up, down
+    data: List[TrendPair] = Field(default_factory=list)
+

@@ -1099,6 +1099,31 @@ async def ohlc(websocket: WebSocket):
         except Exception:
             pass
 
+def _generate_predict_list(predict_scores: dict[str, float]) -> list[schemas.TrendPair]:
+    predict_list = []
+    token_list = [pair.split("/")[0] for pair in predict_scores.keys()]
+    token_data = _get_token_info_data(token_list)
+    token_data_dict = {}
+    for token in token_data:
+        token_data_dict[token.symbol] = token
+    for pair, confidence in predict_scores.items():
+        token = token_data_dict[pair.split("/")[0]]
+        predict_list.append(
+            schemas.TrendPair(
+                pair=pair,
+                confidence=round(20 * confidence, 2),
+                price=token.price,
+                change_24h=token.change_24h,
+                volume_24h=token.volume_24h,
+                market_cap=token.market_cap,
+                logo_url=token.logo_url,
+            )
+        )
+# todo: fix this
+# - [ ] fix the price": 0
+# - [ ] fix the change_24h calculation
+# - [ ] fix the volume_24h calculation
+# - [ ] fix the market_cap calculation
 
 @router.get("/trend", tags=group_tags, response_model=schemas.TrendResponse)
 @cache("in-5m")
@@ -1187,71 +1212,14 @@ def get_trend(
     for row in result:
         score = row.rsi * 0.3 + row.adx * 0.4 + row.psar * 0.3  # range -5 to 5
         if score > 1:
-            uptrend_pairs[row.symbol] = round(20 * score, 2)
+            uptrend_pairs[row.symbol] = score
         elif score < -1:
-            downtrend_pairs[row.symbol] = round(-20 * score, 2)
+            downtrend_pairs[row.symbol] = -score
+    
+    uptrend_list = _generate_predict_list(uptrend_pairs)
+    downtrend_list = _generate_predict_list(downtrend_pairs)
 
-    sorted_uptrend_pairs = sorted(
-        uptrend_pairs.items(), key=lambda item: item[1], reverse=True
-    )
-    sorted_downtrend_pairs = sorted(
-        downtrend_pairs.items(), key=lambda item: item[1], reverse=True
-    )
-    if limit is not None and limit > 0:
-        sorted_uptrend_pairs = sorted_uptrend_pairs[:limit]
-        sorted_downtrend_pairs = sorted_downtrend_pairs[:limit]
-
-    uptrend_list = []
-    downtrend_list = []
-    token_list = [pair.split("/")[0] for pair, confidence in sorted_uptrend_pairs] + [
-        pair.split("/")[0] for pair, confidence in sorted_downtrend_pairs
-    ]
-    token_data = _get_token_info_data(token_list)
-    token_data_dict = {}
-    for token in token_data:
-        token_data_dict[token.symbol] = token
-    for pair, confidence in sorted_uptrend_pairs:
-        token = token_data_dict[pair.split("/")[0]]
-        uptrend_list.append(
-            schemas.TrendPair(
-                pair=pair,
-                confidence=confidence,
-                price=token.price,
-                change_24h=token.change_24h,
-                volume_24h=token.volume_24h,
-                market_cap=token.market_cap,
-                logo_url=token.logo_url,
-            )
-        )
-    for pair, confidence in sorted_downtrend_pairs:
-        token = token_data_dict[pair.split("/")[0]]
-        downtrend_list.append(
-            schemas.TrendPair(
-                pair=pair,
-                confidence=confidence,
-                price=token.price,
-                change_24h=token.change_24h,
-                volume_24h=token.volume_24h,
-                market_cap=token.market_cap,
-                logo_url=token.logo_url,
-            )
-        )
     return schemas.TrendResponse(uptrend=uptrend_list, downtrend=downtrend_list)
-
-
-@router.get(
-    "/predict_signal/{indicator}/{signal}",
-    tags=group_tags,
-    response_model=schemas.TrendResponse,
-)
-@cache("in-5m")
-def get_predict_signal(
-    indicator: str,
-    signal: str,
-    db: Session = Depends(get_db),
-) -> schemas.TrendResponse:
-    return schemas.TrendResponse(uptrend=[], downtrend=[])
-    # schemas.TrendResponse(uptrend=uptrend_list, downtrend=downtrend_list)
 
 
 @router.get("/predict_signal", tags=group_tags, response_model=schemas.Validate)
@@ -1268,3 +1236,85 @@ def get_predict_validate(
     print(response, response.json())
     data = schemas.Validate(**response.json())
     return data
+
+
+@cache("in-5m", value_type=list[schemas.TrendPair])
+def _get_signal_adx() -> list[schemas.TrendPair]:
+    db: Session = SessionLocal()
+    ts = TIMEFRAME_DURATION_MAP['1h']
+    f_table = tables['f1h']  # Will be used in SQL query below
+    from_time = int(datetime.now().timestamp()) - 10 * ts
+
+    query = f"""
+    select symbol --, di14_line_cross, adx_reversal, trend_reversal, r
+        , cast(avg((adx_reversal+di14_line_cross)*trend_reversal*(6-r)) as float) score
+    from (
+        select symbol, close, di14_line_cross
+        	, case 
+                when adx = adx_1 and r <> 1 then 1 
+                else 0
+            end adx_reversal,
+            case 
+                when (CAST(open>close AS int) + CAST(high_1>high AS int) + CAST(low_1>low AS int) >= 2) then 1
+                else -1 
+            end trend_reversal
+            , open_time
+            , r
+        from (
+            select symbol, open, close, high, low, di14_line_cross  
+                ,lag(high) over (
+                    PARTITION BY symbol ORDER BY open_time asc) AS high_1,
+                lag(low) over (
+                    PARTITION BY symbol ORDER BY open_time asc) AS low_1,
+                adx,
+                max(adx) over (PARTITION BY symbol ORDER BY open_time asc rows BETWEEN 2 PRECEDING AND 1 FOLLOWING) AS adx_1,
+                row_number() over (PARTITION BY symbol ORDER BY open_time desc) AS r
+                ,open_time
+            from {f_table}  fcsm 
+            where fcsm.open_time > {from_time}
+        )    
+        where r <= 5
+        order by open_time asc
+    )
+    group by symbol
+    where score != 0
+    """
+    result = db.execute(text(query)).fetchall()
+    predict_up = {}
+    predict_down = {}
+    for row in result:
+        if row.score > 0:
+            predict_up[row.symbol] = row.score
+        else:
+            predict_down[row.symbol] = -row.score
+    return predict_up, predict_down
+
+
+@router.get(
+    "/signal/{indicator}/{signal}",
+    tags=group_tags,
+    response_model=schemas.SignalResponse,
+)
+@cache("in-5m")
+def get_predict_signal(
+    indicator: str,
+    signal: str,
+    db: Session = Depends(get_db),
+) -> schemas.SignalResponse:
+    if indicator == "adx":
+        predict_up, predict_down = _get_signal_adx()
+    # elif indicator == "rsi":
+    #     predict_up, predict_down = _get_signal_rsi()
+    # elif indicator == "psar":
+    #     predict_up, predict_down = _get_signal_psar()
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid indicator: {indicator}")
+    
+    return None
+
+    # if signal == "up":
+    #     return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_up))
+    # elif signal == "down":
+    #     return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_down))
+    # else:
+    #     raise HTTPException(status_code=400, detail=f"Invalid signal: {signal}")
