@@ -64,7 +64,5 @@ class NoticeListResponse(CustomBaseModel):
 
     def model_dump(self, **kwargs: Any) -> Dict[str, Any]:  # type: ignore[override]
         data = super().model_dump(**kwargs)
-        data["notices"] = [
-            notice.model_dump(**kwargs) for notice in self.notices
-        ]
+        data["notices"] = [notice.model_dump(**kwargs) for notice in self.notices]
         return data
