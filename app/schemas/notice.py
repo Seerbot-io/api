@@ -45,6 +45,13 @@ class NoticeResponse(CustomBaseModel):
     updated_at: datetime = datetime.now()
     meta_data: Optional[Dict[str, Any]] = None
 
+    def model_dump(self, by_alias: bool = True) -> Dict[str, Any]:
+        data = super().model_dump(by_alias=by_alias)
+        # data["meta_data"] = json.loads(data["meta_data"]) if data["meta_data"] else {}
+        data["created_at"] = data["created_at"].isoformat()
+        data["updated_at"] = data["updated_at"].isoformat()
+        return data
+
 
 class NoticeListResponse(CustomBaseModel):
     """Response model for a list of notices with pagination"""
@@ -53,3 +60,9 @@ class NoticeListResponse(CustomBaseModel):
     total: int = 0
     limit: int = 10
     offset: int = 0
+    order: str = "desc"
+
+    def model_dump(self, by_alias: bool = True) -> Dict[str, Any]:
+        data = super().model_dump(by_alias=by_alias)
+        data["notices"] = [notice.model_dump(by_alias=by_alias) for notice in self.notices]
+        return data

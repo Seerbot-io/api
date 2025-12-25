@@ -1,5 +1,4 @@
 let ws = null;
-let noticesWs = null; // Separate WebSocket for notices
 let subscriptions = new Map(); // Map<channel, {type, params}>
 
 // Auto-detect WebSocket URL based on current page location
@@ -219,8 +218,8 @@ function updateChannelForm() {
         barsForm.style.display = 'none';
         tokenForm.style.display = 'none';
         noticesForm.style.display = 'block';
-        subscribeBtn.style.display = 'none';
-        unsubscribeBtn.style.display = 'none';
+        subscribeBtn.style.display = 'inline-block';
+        unsubscribeBtn.style.display = 'inline-block';
     }
 }
 
@@ -246,20 +245,47 @@ function buildChannel() {
         }
         
         return `token_info:${symbol}`;
+    } else if (channelType === 'notices') {
+        // Format: notices or notices:{type}|{after_id}|{order}|{limit}
+        // Note: Parameters must be in order. If you specify a later parameter,
+        // you must include all previous ones (even if empty or default).
+        const noticeType = document.getElementById('noticeType').value.trim();
+        const afterId = document.getElementById('noticeAfterId').value.trim();
+        const order = document.getElementById('noticeOrder').value;
+        const limit = document.getElementById('noticeLimit').value.trim();
+        
+        // Check if we need to include any parameters
+        const hasType = noticeType && noticeType !== '';
+        const hasAfterId = afterId && afterId !== '';
+        const hasCustomOrder = order && order !== 'desc';
+        const hasCustomLimit = limit && limit !== '' && limit !== '100';
+        
+        // If no custom parameters, return simple 'notices'
+        if (!hasType && !hasAfterId && !hasCustomOrder && !hasCustomLimit) {
+            return 'notices';
+        }
+        
+        // Build parts array - include all parameters up to the last one specified
+        const parts = [];
+        parts.push(noticeType || ''); // Always include type (even if empty)
+        
+        if (hasAfterId || hasCustomOrder || hasCustomLimit) {
+            parts.push(afterId || ''); // Include after_id if any later param is set
+            if (hasCustomOrder || hasCustomLimit) {
+                parts.push(order || 'desc'); // Include order if limit is set
+                if (hasCustomLimit) {
+                    parts.push(limit);
+                }
+            }
+        }
+        
+        return `notices:${parts.join('|')}`;
     }
     
     return null;
 }
 
 function connect() {
-    const channelType = document.getElementById('channelType').value;
-    
-    // Handle notices WebSocket separately
-    if (channelType === 'notices') {
-        connectNotices();
-        return;
-    }
-    
     const url = document.getElementById('wsUrl').value;
     
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -326,6 +352,26 @@ function connect() {
                             change_24h: tokenData.change_24h,
                             market_cap: tokenData.market_cap
                         });
+                    } else if (data.type === 'notices') {
+                        // Handle notices channel update
+                        const noticesData = data.data;
+                        if (noticesData.notices && Array.isArray(noticesData.notices)) {
+                            // Display each notice
+                            noticesData.notices.forEach(notice => {
+                                addMessage('info', 'Notice Received', {
+                                    id: notice.id,
+                                    type: notice.type,
+                                    icon: notice.icon,
+                                    title: notice.title,
+                                    message: notice.message,
+                                    createdAt: notice.createdAt || notice.created_at,
+                                    updatedAt: notice.updatedAt || notice.updated_at,
+                                    meta_data: notice.meta_data
+                                });
+                            });
+                        } else {
+                            addMessage('info', 'Notices Update', noticesData);
+                        }
                     } else {
                         addMessage('info', 'Update', data);
                     }
@@ -361,102 +407,13 @@ function connect() {
 }
 
 function disconnect() {
-    const channelType = document.getElementById('channelType').value;
-    
-    // Handle notices WebSocket separately
-    if (channelType === 'notices') {
-        disconnectNotices();
-        return;
-    }
-    
     if (ws) {
         ws.close();
         ws = null;
     }
 }
 
-function connectNotices() {
-    if (noticesWs && noticesWs.readyState === WebSocket.OPEN) {
-        addMessage('error', 'Error', 'Already connected to notices!');
-        return;
-    }
-    
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const lastNoticeId = document.getElementById('lastNoticeId').value || '0';
-    const url = `${protocol}//${host}/user/notices/ws?last_notice_id=${lastNoticeId}`;
-    
-    updateStatus('Connecting to notices...', 'connecting');
-    addMessage('info', 'Connection', `Connecting to notices WebSocket: ${url}...`);
-    
-    try {
-        noticesWs = new WebSocket(url);
-        
-        noticesWs.onopen = function() {
-            updateStatus('Connected (Notices)', 'connected');
-            addMessage('success', 'Connection', 'Notices WebSocket connected successfully!');
-            document.getElementById('connectBtn').disabled = true;
-            document.getElementById('disconnectBtn').disabled = false;
-        };
-        
-        noticesWs.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                
-                if (data.type === 'notice' && data.data) {
-                    const notice = data.data;
-                    addMessage('info', 'Notice Received', {
-                        id: notice.id,
-                        type: notice.type,
-                        icon: notice.icon,
-                        title: notice.title,
-                        message: notice.message,
-                        createdAt: notice.createdAt || notice.created_at,
-                        updatedAt: notice.updatedAt || notice.updated_at,
-                        meta_data: notice.meta_data
-                    });
-                } else {
-                    addMessage('info', 'Message', data);
-                }
-            } catch (e) {
-                console.error('Error processing notice message:', e, event.data);
-                addMessage('error', 'Parse Error', `Failed to process message: ${e.message}\n\nRaw data: ${event.data}`);
-            }
-        };
-        
-        noticesWs.onerror = function(error) {
-            addMessage('error', 'WebSocket Error', 'Notices connection error occurred');
-            console.error('Notices WebSocket error:', error);
-        };
-        
-        noticesWs.onclose = function(event) {
-            updateStatus('Disconnected', 'disconnected');
-            addMessage('info', 'Connection', `Notices WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
-            document.getElementById('connectBtn').disabled = false;
-            document.getElementById('disconnectBtn').disabled = true;
-        };
-        
-    } catch (error) {
-        updateStatus('Error', 'disconnected');
-        addMessage('error', 'Connection Error', error.message);
-    }
-}
-
-function disconnectNotices() {
-    if (noticesWs) {
-        noticesWs.close();
-        noticesWs = null;
-    }
-}
-
 function subscribe() {
-    const channelType = document.getElementById('channelType').value;
-    
-    if (channelType === 'notices') {
-        addMessage('info', 'Info', 'Notices WebSocket automatically receives all notices. No subscription needed.');
-        return;
-    }
-    
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         addMessage('error', 'Error', 'Not connected!');
         return;
@@ -479,13 +436,6 @@ function subscribe() {
 }
 
 function unsubscribe() {
-    const channelType = document.getElementById('channelType').value;
-    
-    if (channelType === 'notices') {
-        addMessage('info', 'Info', 'Notices WebSocket automatically receives all notices. Disconnect to stop receiving.');
-        return;
-    }
-    
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         addMessage('error', 'Error', 'Not connected!');
         return;
@@ -539,6 +489,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const resolutionEl = document.getElementById('resolution');
     if (resolutionEl) {
         resolutionEl.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') subscribe();
+        });
+    }
+    
+    const noticeTypeEl = document.getElementById('noticeType');
+    if (noticeTypeEl) {
+        noticeTypeEl.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') subscribe();
+        });
+    }
+    
+    const noticeAfterIdEl = document.getElementById('noticeAfterId');
+    if (noticeAfterIdEl) {
+        noticeAfterIdEl.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') subscribe();
+        });
+    }
+    
+    const noticeLimitEl = document.getElementById('noticeLimit');
+    if (noticeLimitEl) {
+        noticeLimitEl.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') subscribe();
         });
     }

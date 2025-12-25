@@ -1255,15 +1255,18 @@ def get_predict_signal(
 
 
 @router.get(
-    "/predict_signal/{interval}", tags=group_tags, response_model=schemas.Validate
+    "/predict_signal", tags=group_tags, response_model=schemas.Validate
 )
 @cache("in-5m")
 def get_predict_validate(
-    interval: str,
-    limit: int,
+    interval: str = "1h",
     db: Session = Depends(get_db),
 ) -> schemas.TrendResponse:
+    """
+    - interval: 5m, 1h, 4h, 1d (default 1h)
+    """
     url = "https://api.vistia.co/api/v2_2/ai-analysis/predict-validate?interval=3M&limit=100000"
     response = requests.get(url)
-    data = schemas.Validate.model_validate_json(response.json())
+    print(response, response.json())
+    data = schemas.Validate(**response.json())
     return data

@@ -6,7 +6,10 @@ from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 
 from app.api.endpoints.analysis import _get_token_info_data
 from app.api.endpoints.charting import SUPPORTED_RESOLUTIONS, get_chart_data
+from app.api.endpoints.user import _get_notices
 from app.core.router_decorated import APIRouter
+from app.db.session import SessionLocal
+from app.schemas.notice import NoticeListResponse
 
 router = APIRouter()
 group_tags = ["WebSocket"]
@@ -49,6 +52,10 @@ def parse_channel(channel: str) -> Tuple[str, Dict[str, Any]]:
     Examples:
     - ohlc:USDM_ADA|5m -> ("ohlc", {"symbol": "USDM_ADA", "resolution": "5m"})
     - token_info:USDM -> ("token_info", {"symbol": "USDM"})
+    - notices -> ("notices", {})
+    - notices:info -> ("notices", {"type": "info"})
+    - notices:info|100 -> ("notices", {"type": "info", "after_id": "100"})
+    - notices:info|100|desc|10|0 -> ("notices", {"type": "info", "after_id": "100", "order": "desc", "limit": "10", "offset": "0"})
     """
     if ":" not in channel:
         raise ValueError(
@@ -92,9 +99,31 @@ def parse_channel(channel: str) -> Tuple[str, Dict[str, Any]]:
 
         return channel_type, {"symbol": params_str}
 
+    elif channel_type == "notices":
+        # Format: notices or notices:{type}|{after_id}|{order}|{limit}
+        # All parameters are optional
+        params = {}
+        if params_str:
+            parts = params_str.split("|")
+            if len(parts) > 0 and parts[0]:
+                params["type"] = parts[0]
+            if len(parts) > 1 and parts[1]:
+                try:
+                    params["after_id"] = int(parts[1])
+                except ValueError:
+                    pass  # Invalid after_id, ignore
+            if len(parts) > 2 and parts[2]:
+                params["order"] = parts[2]
+            if len(parts) > 3 and parts[3]:
+                try:
+                    params["limit"] = int(parts[3])
+                except ValueError:
+                    pass  # Invalid limit, ignore
+        return channel_type, params
+
     else:
         raise ValueError(
-            f"Unknown channel type: {channel_type}. Supported types: ohlc, token_info"
+            f"Unknown channel type: {channel_type}. Supported types: ohlc, token_info, notices"
         )
 
 
@@ -153,7 +182,7 @@ async def subscription_update_task(
                 break  # Stop event was set
             except asyncio.TimeoutError:
                 pass  # Continue to next iteration
-        await asyncio.sleep(60)
+        await asyncio.sleep(15)
 
     print(f"Subscription task for {subscription.channel} stopped")
 
@@ -171,6 +200,7 @@ async def unified_websocket(websocket: WebSocket):
     Supported channels:
     - ohlc:{symbol}|{resolution} - e.g., ohlc:USDM_ADA|5m
     - token_info:{symbol} - e.g., token_info:USDM
+    - notices - e.g., notices or notices:all|100|desc|10|0
 
     Response format:
     {
@@ -484,6 +514,76 @@ async def handle_token_info(
     return None
 
 
+@channel_handler("notices")
+async def handle_notices(
+    subscription: ChannelSubscription, websocket: WebSocket
+) -> Optional[Dict[str, Any]]:
+    """Handle notices channel updates.
+
+    Channel format: notices or notices:{type}|{after_id}|{order}|{limit}|{offset}
+    Examples:
+    - notices (all defaults)
+    - notices:info
+    - notices:info|100
+    - notices:info|100|desc|10
+    """
+    # Get parameters with defaults
+    notice_type = subscription.params.get("type")
+    after_id = subscription.params.get("after_id")
+    order = subscription.params.get("order", "desc")
+    limit = subscription.params.get("limit", 100)
+
+    # Validate limit
+    if limit < 1 or limit > 100:
+        limit = 100
+    if order not in ["desc", "asc"]:
+        order = "desc"
+
+    # Get last notice ID from state (tracks the last notice ID we've seen)
+    last_notice_id = subscription.state.get("last_notice_id", after_id)
+
+    # Create database session
+    db = SessionLocal()
+    try:
+        # Get notices
+        notice_responses = _get_notices(
+            type=notice_type,
+            limit=limit,
+            order=order,
+            after_id=last_notice_id,
+            db=db,
+        )
+        total = len(notice_responses)
+
+        # Update last_notice_id if we got new notices
+        if total > 0:
+            subscription.state["last_notice_id"] = notice_responses[-1].id
+
+        # Return update data
+        message = NoticeListResponse(
+            notices=notice_responses,
+            total=total,
+            limit=limit,
+            order=order,
+        ).model_dump(by_alias=True)
+
+        return {
+            "channel": subscription.channel,
+            "type": "notices",
+            "data": message,
+        }
+    except Exception as e:
+        print(
+            f"Error querying notices data (channel {subscription.channel}): {e}"
+        )
+        await websocket.send_json(
+            {"error": "failed to get notices data", "channel": subscription.channel}
+        )
+        return None
+    finally:
+        db.close()
+
+
 websocket_schema = {
     "/ws": {
         "get": {
@@ -555,6 +655,44 @@ websocket_schema = {
      }
      ```
 
+3. **Notices**
+   - Format: `notices` or `notices:{type}|{after_id}|{order}|{limit}`
+   - Examples:
+     - `notices` (all defaults: type=None, after_id=0, order=desc, limit=100)
+     - `notices:info` (filter by type=info)
+     - `notices:info|100` (type=info, after_id=100)
+     - `notices:info|100|desc|10` (all parameters specified)
+   - Parameters (all optional):
+     - `type`: Filter by notice type (info, account, signal, all) - default: None (all)
+     - `after_id`: Last notice ID to receive notices for - default: 0
+     - `order`: Order by (desc, asc) - default: desc
+     - `limit`: Maximum number of notices (1-100) - default: 100
+   - Response Data:
+     ```json
+     {
+         "channel": "notices:info|100",
+         "type": "notices",
+         "data": {
+             "notices": [
+                 {
+                     "id": 1,
+                     "type": "info",
+                     "icon": "https://seerbot.io/icon.png",
+                     "title": "Welcome",
+                     "message": "Welcome to SeerBot",
+                     "created_at": "2024-01-01T12:00:00",
+                     "updated_at": "2024-01-01T12:00:00",
+                     "meta_data": {"indicatorType": "signal", "token": "ADA"}
+                 }
+             ],
+             "total": 1,
+             "limit": 100,
+             "offset": 0,
+             "order": "desc"
+         }
+     }
+     ```
+
 **Response Messages:**
 
 - **Subscribe Success:**
@@ -597,6 +735,7 @@ websocket_schema = {
 - Maximum subscriptions reached (5)
 - Invalid resolution (for OHLC channels)
 - Token not found (for token_info channels)
+- Invalid notice parameters (for notices channels)
 - Invalid JSON format
                 """,
             "responses": {

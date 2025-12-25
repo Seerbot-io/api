@@ -66,15 +66,49 @@
             
             <div id="noticesForm" style="display: none;">
                 <div class="form-group">
-                    <label>Last Notice ID (optional)</label>
-                    <input type="number" id="lastNoticeId" value="0" placeholder="0" min="0">
+                    <label>Type (optional)</label>
+                    <select id="noticeType">
+                        <option value="">All types</option>
+                        <option value="info">info</option>
+                        <option value="account">account</option>
+                        <option value="signal">signal</option>
+                        <option value="all">all</option>
+                    </select>
                     <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
-                        Only receive notices with ID greater than this value (default: 0 = all notices)
+                        Filter by notice type (default: all)
                     </small>
                 </div>
+                
+                <div class="form-group">
+                    <label>After ID</label>
+                    <input type="number" id="noticeAfterId" value="0" placeholder="0" min="0">
+                    <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                        Only receive notices with ID greater than this value (default: all notices)
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Order</label>
+                    <select id="noticeOrder">
+                        <option value="desc">desc</option>
+                        <option value="asc">asc</option>
+                    </select>
+                    <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                        Order by ID (default: desc)
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Limit</label>
+                    <input type="number" id="noticeLimit" value="100" placeholder="100" min="1" max="100">
+                    <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                        Maximum number of notices to return (default: 100, max: 100)
+                    </small>
+                </div>
+                
                 <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; margin-top: 10px;">
                     <small style="color: #1976d2;">
-                        <strong>Note:</strong> Notices WebSocket connects directly to <code>/user/notices/ws</code> and doesn't use subscribe/unsubscribe actions. It automatically receives all notices.
+                        <strong>Note:</strong> Notices channel uses the unified WebSocket endpoint. Subscribe to receive real-time notice updates.
                     </small>
                 </div>
             </div>
