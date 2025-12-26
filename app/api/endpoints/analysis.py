@@ -199,8 +199,8 @@ def get_indicators(
         pair=response_pair, timeframe=timeframe_lower, data=data
     )
 
-
-@cache("in-1m", value_type=list[schemas.TokenMarketInfo])
+# todo: fix this to cache the data param make cache inefficient
+# @cache("in-1m", value_type=list[schemas.TokenMarketInfo])
 def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
     time_now = (int(datetime.now().timestamp()) // 300 - 1) * 300
     time_24h_ago = time_now - 24 * 60 * 60
@@ -210,14 +210,14 @@ def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
     if "ADA" in symbols:
         symbols.pop(symbols.index("ADA"))
         query = f"""  
-        select a.*, c.price, c.change_24h 
+        select a.*, c.price, c.change_24h
         ,d.low_24h low_24h, d.high_24h high_24h, d.volume_24h volume_24h, c.price * a.total_supply as market_cap
         from (
             select id, name, symbol, logo_url, total_supply
             from proddb.tokens
             where symbol='ADA'
         ) a left join(
-            select price, price - price_24h as change_24h
+            select price, ((price - price_24h) / price) * 100 as change_24h
             from (
                 select open_time, close as price, lead(close) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
                 from proddb.coin_prices_5m cph
@@ -248,7 +248,7 @@ def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
         symbols_str = "('" + "', '".join(symbols) + "')"
         pairs_str = "('" + "', '".join([f"{symbol}/ADA" for symbol in symbols]) + "')"
         query = f"""  
-        select a.*, c.price/b.ada_price as price, c.change_24h/b.ada_price change_24h
+        select a.*, c.price/b.ada_price as price, c.change_24h
         ,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h, c.price * a.total_supply as market_cap
         from (
             select id, name, symbol, logo_url, total_supply, symbol || '/ADA' as pair
@@ -261,7 +261,7 @@ def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
                 and open_time = {time_now}
         ) b on true
         left join(
-            select symbol, price, price - price_24h as change_24h
+            select symbol, price, ((price - price_24h) / price) * 100 as change_24h
             from (
                 select symbol, open_time, close as price, lead(close, 2) over (PARTITION BY symbol ORDER by open_time desc) price_24h, row_number() over (PARTITION BY symbol ORDER by open_time desc) as r
                 from proddb.coin_prices_5m cph
@@ -1099,26 +1099,28 @@ async def ohlc(websocket: WebSocket):
         except Exception:
             pass
 
-def _generate_predict_list(predict_scores: dict[str, float]) -> list[schemas.TrendPair]:
+def _generate_predict_list(predict_scores: dict[str, float]) -> list[schemas.TrendPair_V2]:
     predict_list = []
     token_list = [pair.split("/")[0] for pair in predict_scores.keys()]
     token_data = _get_token_info_data(token_list)
+    timestamp = int(datetime.now().timestamp() // 3600 * 3600)
     token_data_dict = {}
     for token in token_data:
         token_data_dict[token.symbol] = token
     for pair, confidence in predict_scores.items():
         token = token_data_dict[pair.split("/")[0]]
-        predict_list.append(
-            schemas.TrendPair(
-                pair=pair,
-                confidence=round(20 * confidence, 2),
-                price=token.price,
-                change_24h=token.change_24h,
-                volume_24h=token.volume_24h,
-                market_cap=token.market_cap,
-                logo_url=token.logo_url,
-            )
+        predict_list.append(schemas.TrendPair_V2(
+            pair=pair,
+            timestamp=timestamp,
+            confidence=round(20 * confidence, 2),
+            price=token.price,
+            change_24h=token.change_24h,
+            volume_24h=token.volume_24h,
+            market_cap=token.market_cap,
+            logo_url=token.logo_url,
         )
+    )
+    return predict_list
 # todo: fix this
 # - [ ] fix the price": 0
 # - [ ] fix the change_24h calculation
@@ -1238,45 +1240,48 @@ def get_predict_validate(
     return data
 
 
-@cache("in-5m", value_type=list[schemas.TrendPair])
-def _get_signal_adx() -> list[schemas.TrendPair]:
+@cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
+def _get_signal_adx() -> tuple[dict[str, float], dict[str, float]]:
     db: Session = SessionLocal()
     ts = TIMEFRAME_DURATION_MAP['1h']
     f_table = tables['f1h']  # Will be used in SQL query below
     from_time = int(datetime.now().timestamp()) - 10 * ts
 
     query = f"""
-    select symbol --, di14_line_cross, adx_reversal, trend_reversal, r
-        , cast(avg((adx_reversal+di14_line_cross)*trend_reversal*(6-r)) as float) score
+    select symbol, score
     from (
-        select symbol, close, di14_line_cross
-        	, case 
-                when adx = adx_1 and r <> 1 then 1 
-                else 0
-            end adx_reversal,
-            case 
-                when (CAST(open>close AS int) + CAST(high_1>high AS int) + CAST(low_1>low AS int) >= 2) then 1
-                else -1 
-            end trend_reversal
-            , open_time
-            , r
+        select symbol --, di14_line_cross, adx_reversal, trend_reversal, r
+            , cast(avg((adx_reversal+di14_line_cross)*trend_reversal*(6-r)) as float) score
         from (
-            select symbol, open, close, high, low, di14_line_cross  
-                ,lag(high) over (
-                    PARTITION BY symbol ORDER BY open_time asc) AS high_1,
-                lag(low) over (
-                    PARTITION BY symbol ORDER BY open_time asc) AS low_1,
-                adx,
-                max(adx) over (PARTITION BY symbol ORDER BY open_time asc rows BETWEEN 2 PRECEDING AND 1 FOLLOWING) AS adx_1,
-                row_number() over (PARTITION BY symbol ORDER BY open_time desc) AS r
-                ,open_time
-            from {f_table}  fcsm 
-            where fcsm.open_time > {from_time}
-        )    
-        where r <= 5
-        order by open_time asc
+            select symbol, close, di14_line_cross
+                , case 
+                    when adx = adx_1 and r <> 1 then 1 
+                    else 0
+                end adx_reversal,
+                case 
+                    when (CAST(open>close AS int) + CAST(high_1>high AS int) + CAST(low_1>low AS int) >= 2) then 1
+                    else -1 
+                end trend_reversal
+                , open_time
+                , r
+            from (
+                select symbol, open, close, high, low, di14_line_cross  
+                    ,lag(high) over (
+                        PARTITION BY symbol ORDER BY open_time asc) AS high_1,
+                    lag(low) over (
+                        PARTITION BY symbol ORDER BY open_time asc) AS low_1,
+                    adx,
+                    max(adx) over (PARTITION BY symbol ORDER BY open_time asc rows BETWEEN 2 PRECEDING AND 1 FOLLOWING) AS adx_1,
+                    row_number() over (PARTITION BY symbol ORDER BY open_time desc) AS r
+                    ,open_time
+                from {f_table}  fcsm 
+                where fcsm.open_time > {from_time}
+            )    
+            where r <= 5
+            order by open_time asc
+        )
+        group by symbol
     )
-    group by symbol
     where score != 0
     """
     result = db.execute(text(query)).fetchall()
@@ -1287,7 +1292,138 @@ def _get_signal_adx() -> list[schemas.TrendPair]:
             predict_up[row.symbol] = row.score
         else:
             predict_down[row.symbol] = -row.score
-    return predict_up, predict_down
+    return (predict_up, predict_down)
+
+
+@cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
+def _get_signal_rsi() -> tuple[dict[str, float], dict[str, float]]:
+    db: Session = SessionLocal()
+    ts = TIMEFRAME_DURATION_MAP['1h']
+    f_table = tables['f1h']  # Will be used in SQL query below
+    from_time = int(datetime.now().timestamp()) - 10 * ts
+
+    query = f"""
+    select symbol, score
+    from (
+        select symbol
+            , cast(sum(rsi14*CAST(r=1 AS int))/10 - 5 as float) score
+        from (
+            select symbol, rsi14
+                , open_time
+                , r
+            from (
+                select symbol, rsi14
+                    , row_number() over (PARTITION BY symbol ORDER BY open_time desc) AS r
+                    , open_time
+                from {f_table} fcsm 
+                where fcsm.open_time > {from_time}
+            )    
+            where r <= 5
+            order by open_time asc
+        )
+        group by symbol
+    )
+    where score != 0
+    """
+    result = db.execute(text(query)).fetchall()
+    predict_up = {}
+    predict_down = {}
+    for row in result:
+        if row.score > 0:
+            predict_up[row.symbol] = row.score
+        else:
+            predict_down[row.symbol] = -row.score
+    return (predict_up, predict_down)
+
+
+@cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
+def _get_signal_psar() -> tuple[dict[str, float], dict[str, float]]:
+    db: Session = SessionLocal()
+    ts = TIMEFRAME_DURATION_MAP['1h']
+    f_table = tables['f1h']  # Will be used in SQL query below
+    from_time = int(datetime.now().timestamp()) - 10 * ts
+
+    query = f"""
+    select symbol, score
+    from (
+        select symbol
+            , cast(avg(psar*(6-r)) as float) score
+        from (
+            select symbol
+                , case 
+                    when psar_type_1 = 'UP' and psar_type = 'DOWN' then -1
+                    when psar_type_1 = 'DOWN' and psar_type = 'UP' then 1
+                    else 0
+                end psar
+                , open_time
+                , r
+            from (
+                select symbol
+                    , psar_type,
+                    lag(psar_type) over (PARTITION BY symbol ORDER BY open_time asc) AS psar_type_1,
+                    row_number() over (PARTITION BY symbol ORDER BY open_time desc) AS r
+                    , open_time
+                from {f_table} fcsm 
+                where fcsm.open_time > {from_time}
+            )    
+            where r <= 5
+            order by open_time asc
+        )
+        group by symbol
+    )
+    where score != 0
+    """
+    result = db.execute(text(query)).fetchall()
+    predict_up = {}
+    predict_down = {}
+    for row in result:
+        if row.score > 0:
+            predict_up[row.symbol] = row.score
+        else:
+            predict_down[row.symbol] = -row.score
+    return (predict_up, predict_down)
+
+
+@cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
+def _get_signal_price_24h() -> tuple[dict[str, float], dict[str, float]]:
+    db: Session = SessionLocal()
+    ts = TIMEFRAME_DURATION_MAP['1h']
+    f_table = tables['f1h']  # Will be used in SQL query below
+    time_now = int(datetime.now().timestamp()) // ts * ts  # Round to nearest hour
+    time_24h_ago = time_now - 24 * 60 * 60
+
+    query = f"""
+    select symbol, score
+    from (
+        select symbol
+            , cast(
+                case 
+                    when price_24h > 0 then ((close - price_24h) / price_24h) * 100
+                    else 0
+                end as float
+            ) score
+        from (
+            select symbol, close
+                , lead(close, 24) over (PARTITION BY symbol ORDER BY open_time desc) AS price_24h
+                , row_number() over (PARTITION BY symbol ORDER BY open_time desc) AS r
+                , open_time
+            from {f_table} fcsm 
+            where fcsm.open_time >= {time_24h_ago}
+                and fcsm.open_time <= {time_now}
+        )
+        where r = 1
+    )
+    where score != 0
+    """
+    result = db.execute(text(query)).fetchall()
+    predict_up = {}
+    predict_down = {}
+    for row in result:
+        if row.score > 0:
+            predict_up[row.symbol] = row.score
+        else:
+            predict_down[row.symbol] = -row.score
+    return (predict_up, predict_down)
 
 
 @router.get(
@@ -1301,23 +1437,38 @@ def get_predict_signal(
     signal: str,
     db: Session = Depends(get_db),
 ) -> schemas.SignalResponse:
+    """Retrieves signal data for a specific indicator and signal.
+        - indicator: adx, rsi, psar, price_24h (default: adx)
+        - signal: up, down (default: up)
+        output:
+        - indicator: adx, rsi, psar, price_24h
+        - signal: up, down
+        - data: List[TrendPair_V2]
+            - pair: Trading pair symbol (e.g., 'ETH/ADA')
+            - timestamp: Timestamp of the prediction
+            - confidence: Confidence score of the prediction (0-100)
+            - price: Current price of the trading pair
+            - change_24h: Change percentage of the trading pair in the last 24 hours
+            - volume_24h: Volume of the trading pair in the last 24 hours
+            - market_cap: Market cap of the trading pair
+    """
     if indicator == "adx":
         predict_up, predict_down = _get_signal_adx()
     elif indicator == "rsi":
         predict_up, predict_down = _get_signal_rsi()
     elif indicator == "psar":
         predict_up, predict_down = _get_signal_psar()
+    elif indicator == "price_24h":
+        predict_up, predict_down = _get_signal_price_24h()
     else:
         raise HTTPException(status_code=400, detail=f"Invalid indicator: {indicator}")
-    
-    return None
 
-    # if signal == "up":
-    #     return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_up))
-    # elif signal == "down":
-    #     return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_down))
-    # else:
-    #     raise HTTPException(status_code=400, detail=f"Invalid signal: {signal}")
+    if signal == "up":
+        return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_up))
+    elif signal == "down":
+        return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_down))
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid signal: {signal}")
 
 # todo: fix this
 # - [ ] implement predict_signal
@@ -1355,7 +1506,7 @@ def get_predictions(
         "pair": "SNEK/ADA", 
         "current_price": 0.00265667166, 
         "predict_price": 0.0026311,
-        "change_rate": -0.0096
+        "change_rate": -0.96
     }]  
     response = [schemas.Prediction(**item) for item in data]
     return response

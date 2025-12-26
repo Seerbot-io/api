@@ -33,12 +33,12 @@ class CustomBaseModel(BaseModel):
                 try:  #  try to convert the value to the type of the attribute
                     data[attr] = attr_type(value)
                 except Exception:
-                    print(f"Invalid value for key: {attr}")
+                    # print(f"Invalid value for key: {attr}")
                     if attr in me.model_fields:
-                        print(f"Set default value for key: {attr}")
+                        print(f"Invalid value, set default value for key: {attr}")
                         data[attr] = me.model_fields[attr].default
                     else:  # set the custorm default value it don't have default value
-                        print(f"Set custorm default value for key: {attr}")
+                        print(f"Invalid value, set custorm default value for key: {attr}")
                         # Use appropriate default value based on type
                         if attr_type is dict:
                             data[attr] = {}
