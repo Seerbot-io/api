@@ -499,6 +499,8 @@ def get_swaps(
                 else CONCAT(from_token, '/', to_token) 
             end as pair,
             case when from_token = '{quote_token}' then 'buy' else 'sell' end as side,
+            from_token,
+            to_token,
             from_amount,
             to_amount,
             case when from_token = '{quote_token}' then from_amount / to_amount else to_amount / from_amount end as price,
@@ -520,6 +522,8 @@ def get_swaps(
             transaction_id=str(row.transaction_id),
             side=str(row.side),
             pair=str(row.pair),
+            from_token=str(row.from_token),
+            to_token=str(row.to_token),
             from_amount=float(row.from_amount) if row.from_amount is not None else 0.0,
             to_amount=float(row.to_amount) if row.to_amount is not None else 0.0,
             price=float(row.price) if row.price is not None else 0.0,

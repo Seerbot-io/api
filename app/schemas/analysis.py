@@ -154,6 +154,8 @@ class SwapTransaction(CustomBaseModel):
     transaction_id: str = ""
     side: str = "unknown"
     pair: str = ""
+    from_token: str = ""
+    to_token: str = ""
     from_amount: float = 0.0
     to_amount: float = 0.0
     price: float = 0.0
