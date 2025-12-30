@@ -152,9 +152,9 @@ class MessageResponse(CustomBaseModel):
 
 class SwapTransaction(CustomBaseModel):
     transaction_id: str = ""
-    from_token: str = ""
+    side: str = "unknown"
+    pair: str = ""
     from_amount: float = 0.0
-    to_token: str = ""
     to_amount: float = 0.0
     price: float = 0.0
     timestamp: int = 0
@@ -166,7 +166,7 @@ class SwapTransaction(CustomBaseModel):
 
 
 class SwapListResponse(CustomBaseModel):
-    transactions: List[SwapTransaction] = []
+    transactions: List[SwapTransaction] = Field(default_factory=list)
     total: int = 0
     page: int = 1
     limit: int = 20

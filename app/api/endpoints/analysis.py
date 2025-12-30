@@ -413,10 +413,9 @@ def create_swap(
 @router.get("/swaps", tags=group_tags, response_model=schemas.SwapListResponse)
 @cache("in-1m")
 def get_swaps(
+    pair: str=None,
     page: int = 1,
     limit: int = 20,
-    from_token: Optional[str] = None,
-    to_token: Optional[str] = None,
     from_time: Optional[int] = None,
     to_time: Optional[int] = None,
     user_id: Optional[str] = None,  # deprecated, use wallet_address instead
@@ -426,8 +425,7 @@ def get_swaps(
 
     - page: Page number (default: 1)
     - limit: Number of records per page (default: 20, max: 100)
-    - from_token: Filter by source token (optional)
-    - to_token: Filter by destination token (optional)
+    - pair: Filter by trading pair in format BASE_QUOTE (e.g., USDM_ADA) (optional)
     - from_time: Start timestamp filter in seconds (optional)
     - to_time: End timestamp filter in seconds (optional)
     - user_id: Filter by wallet address (optional)
@@ -443,41 +441,83 @@ def get_swaps(
     limit = max(1, min(100, limit))
     offset = (page - 1) * limit
 
-    # Build query
-    query = db.query(Swap)
+    # Build dynamic SQL conditions
+    where_clauses = ["status = 'completed'"]
+    params: dict[str, object] = {}
+    quote_token: Optional[str] = 'ADA'
 
-    # Apply filters
-    if from_token:
-        query = query.filter(Swap.from_token == from_token.strip())
-    if to_token:
-        query = query.filter(Swap.to_token == to_token.strip())
+    # Apply pair filter if provided
+    if pair:
+        if "_" not in pair:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid pair format. Use BASE_QUOTE (e.g., USDM_ADA)",
+            )
+        base_token, quote_token = [p.strip() for p in pair.split("_", 1)]
+        if not base_token or not quote_token:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid pair format. Both tokens are required (BASE_QUOTE)",
+            )
+        token_list_str = "('" + base_token + "', '" + quote_token + "')"
+        where_clauses.append(f"from_token in {token_list_str} AND to_token in {token_list_str}")
+        params["base_token"] = base_token
+        params["quote_token"] = quote_token
     if from_time:
-        query = query.filter(Swap.timestamp >= from_time)
+        where_clauses.append("timestamp >= :from_time")
+        params["from_time"] = from_time
     if to_time:
-        query = query.filter(Swap.timestamp <= to_time)
+        where_clauses.append("timestamp <= :to_time")
+        params["to_time"] = to_time
     if user_id:
         # Filter by user_id (wallet address) when user_id is provided
-        query = query.filter(Swap.user_id == user_id)
+        where_clauses.append("user_id = :user_id")
+        params["user_id"] = user_id
 
-    # Get total count
-    total = query.count()
+    where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
+    limit_offset_sql = ""
+    if limit is not None and limit > 0:
+        limit_offset_sql += f"LIMIT {limit}"
+    if offset is not None and offset > 0:
+        limit_offset_sql += f" OFFSET {offset}"
+    # Fetch paginated rows
+    data_sql = text(
+        f"""
+        SELECT 
+            transaction_id,
+            case 
+                when from_token = '{quote_token}' then CONCAT(to_token, '/', from_token) 
+                else CONCAT(from_token, '/', to_token) 
+            end as pair,
+            case when from_token = '{quote_token}' then 'buy' else 'sell' end as side,
+            from_amount,
+            to_amount,
+            case when from_token = '{quote_token}' then to_amount / from_amount else from_amount / to_amount end as price,
+            -- price,
+            timestamp,
+            status
+        FROM proddb.swap_transactions
+        WHERE {where_sql}
+        ORDER BY timestamp DESC
+        {limit_offset_sql}
+        """
+    )
+    swaps = db.execute(data_sql, params).fetchall()
 
-    # Apply pagination and ordering
-    swaps = query.order_by(Swap.timestamp.desc()).offset(offset).limit(limit).all()
-
+    total = len(swaps)
     # Convert to response format
     transactions = [
         schemas.SwapTransaction(
-            transaction_id=str(swap.transaction_id),
-            from_token=str(swap.from_token),
-            from_amount=float(swap.from_amount),  # type: ignore
-            to_token=str(swap.to_token),
-            to_amount=float(swap.to_amount),  # type: ignore
-            price=float(swap.price),  # type: ignore
-            timestamp=int(swap.timestamp),  # type: ignore
-            status=str(swap.status),
+            transaction_id=str(row.transaction_id),
+            side=str(row.side),
+            pair=str(row.pair),
+            from_amount=float(row.from_amount) if row.from_amount is not None else 0.0,
+            to_amount=float(row.to_amount) if row.to_amount is not None else 0.0,
+            price=float(row.price) if row.price is not None else 0.0,
+            timestamp=int(row.timestamp) if row.timestamp is not None else 0,
+            status=str(row.status),
         )
-        for swap in swaps
+        for row in swaps
     ]
 
     return schemas.SwapListResponse(
