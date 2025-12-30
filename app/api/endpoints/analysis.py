@@ -492,7 +492,7 @@ def get_swaps(
             case when from_token = '{quote_token}' then 'buy' else 'sell' end as side,
             from_amount,
             to_amount,
-            case when from_token = '{quote_token}' then to_amount / from_amount else from_amount / to_amount end as price,
+            case when from_token = '{quote_token}' then from_amount / to_amount else to_amount / from_amount end as price,
             -- price,
             timestamp,
             status
