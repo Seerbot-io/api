@@ -144,7 +144,7 @@ def extract_swap_info(market_order_tx: str) -> dict:
     price_res = requests.get(
         "https://agg-api.minswap.org/aggregator/ada-price?currency=usd"
     )
-    ada_price = price_res.json().get("value", {"price": 1}).get("price")
+    ada_price = float(price_res.json().get("value", {"price": 1}).get("price", 1))
     mo_utxos = context.api.transaction_utxos(market_order_tx)
     user = mo_utxos.inputs[0].address
 
@@ -177,7 +177,7 @@ def extract_swap_info(market_order_tx: str) -> dict:
     if detail.get("direction", "") == "A_TO_B":
         token_in = asset_a.get("ticker")
         token_out = asset_b.get("ticker")
-        usd_value = asset_a.get("price_by_ada", 1) * amount_in
+        usd_value = asset_a.get("price_by_ada", 1) * amount_in   
         price = asset_b.get("price_by_ada", 1) / asset_a.get("price_by_ada", 1)
     else:
         token_in = asset_b.get("ticker")

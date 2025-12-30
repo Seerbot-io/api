@@ -2,6 +2,7 @@ import asyncio
 import json
 from datetime import datetime
 from enum import Enum
+import time
 from typing import List, Optional
 
 from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -374,11 +375,19 @@ def create_swap(
 
     """
     try:
+        time.sleep(30) 
+        # raise Exception("test retry")
+        print("start check")
         swap_info = extract_swap_info(form.order_tx_id)
-        # print(swap_info)
     except Exception as e:
         print(e)
-        raise HTTPException(status_code=400, detail="failed to extract swap info")
+        time.sleep(30) 
+        try:
+            print("re check")
+            swap_info = extract_swap_info(form.order_tx_id)
+        except Exception as e:
+            print(e)
+            raise HTTPException(status_code=400, detail="failed to extract swap info")
     swap_info["extend_data"] = {
         "order_tx_id": form.order_tx_id,
         "execution_tx_id": swap_info["transaction_id"],
