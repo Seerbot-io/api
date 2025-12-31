@@ -28,6 +28,7 @@ swap_queue: asyncio.Queue[tuple[str, float]] = asyncio.Queue()
 swap_worker_task: asyncio.Task | None = None
 
 
+# not use
 def sum_utxos_amount(utxos: list[Namespace], only: list[str] = []) -> dict:
     total = {}
     try:
@@ -42,6 +43,7 @@ def sum_utxos_amount(utxos: list[Namespace], only: list[str] = []) -> dict:
     return total
 
 
+# not use
 def get_change_amount_utxo(
     utxo_inputs: list[Namespace], utxo_outputs: list[Namespace], only: list[str] = []
 ) -> dict:
@@ -62,6 +64,7 @@ def get_change_amount_utxo(
     return change
 
 
+# not use
 def get_change_amount(tx_list: list[str], only: list[str] = []) -> dict:
     global context
     utxo_inputs = []
@@ -73,6 +76,7 @@ def get_change_amount(tx_list: list[str], only: list[str] = []) -> dict:
     return get_change_amount_utxo(utxo_inputs, utxo_outputs, only)
 
 
+# not use
 def get_executed_tx(
     user: str, market_order_tx: str, token_in: str, token_out: str
 ) -> str:
@@ -96,6 +100,7 @@ def get_executed_tx(
     raise Exception(f"Market order tx not found: {market_order_tx}")
 
 
+# not use
 def extract_swap_info_v0(
     market_order_tx: str,
     order_executed_tx: str = "",
@@ -110,6 +115,7 @@ def extract_swap_info_v0(
             order_executed_tx = get_executed_tx(
                 user, market_order_tx, token_in, token_out
             )
+        print(context.api.transaction(order_executed_tx))
         timestamp = context.api.transaction(order_executed_tx).block_time
         oe_utxos = context.api.transaction_utxos(order_executed_tx)
     except Exception as e:
@@ -204,7 +210,7 @@ def extract_swap_info(market_order_tx: str) -> dict:
         "price": price,
         "value": value,
         "fee": fee,
-        "gas_price": ada_price,
+        "ada_price": ada_price,
     }
 
 
@@ -240,12 +246,13 @@ async def _persist_swap(swap_info: dict, status: str = "completed") -> None:
                 ada_price=swap_info.get("ada_price"),
                 extend_data=json.dumps(
                     {
-                        "order_tx_id": swap_info.get("order_tx_id", ""),
+                        "order_tx_id": swap_info.get("transaction_id", ""),
                         "execution_tx_id": swap_info.get("execution_tx_id", ""),
                     }
                 ),
                 status=status,
             )
+
             db.merge(row)  # on conflict, update existing row
             db.commit()
         finally:
