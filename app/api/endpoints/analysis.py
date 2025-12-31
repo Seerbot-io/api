@@ -323,7 +323,9 @@ def get_tokens(
         offset = n
     if offset + page_size > n:
         page_size = n - offset
-    symbols: list[str] = [str(token.symbol) for token in tokens[offset : offset + page_size]]
+    symbols: list[str] = [
+        str(token.symbol) for token in tokens[offset : offset + page_size]
+    ]
     token_data = _get_token_info_data(symbols)
     # Convert to response format
     return schemas.TokenList(total=n, page=page, tokens=token_data)

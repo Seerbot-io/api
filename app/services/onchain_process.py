@@ -106,12 +106,10 @@ def extract_swap_info_v0(
     try:
         mo_utxos = context.api.transaction_utxos(market_order_tx)
         user = mo_utxos.inputs[0].address
-        # print(user, market_order_tx, order_executed_tx, token_in, token_out)
         if order_executed_tx == "":
             order_executed_tx = get_executed_tx(
                 user, market_order_tx, token_in, token_out
             )
-        # print(order_executed_tx)
         timestamp = context.api.transaction(order_executed_tx).block_time
         oe_utxos = context.api.transaction_utxos(order_executed_tx)
     except Exception as e:
@@ -181,7 +179,6 @@ def extract_swap_info(market_order_tx: str) -> dict:
     amount_in = float(detail.get("input_amount", 0))
     amount_out = float(detail.get("executed_amount", 0))
     price = amount_out / amount_in
-    print(f"amount_in: {amount_in}, amount_out: {amount_out}, price: {price}")
     fee = round(
         float(order.get("batcher_fee", 0)) + float(detail.get("trading_fee", 0)), 6
     )  # not all the fee
