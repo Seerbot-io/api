@@ -34,8 +34,12 @@ class Swap(Base):
     to_amount = Column(Float)
     price = Column(Float)
     value = Column(Float)
-    timestamp = Column(BigInteger)
+    timestamp = Column(BigInteger, nullable=False)
     fee = Column(Float)
     ada_price = Column(Float)
     extend_data = Column(String(255))
     status = Column(String(50), default="pending")  # 'pending', 'completed', 'failed'
+
+    def __init__(self, **kwargs):
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        super().__init__(**kwargs)
