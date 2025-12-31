@@ -27,17 +27,15 @@ class Swap(Base):
     __table_args__ = {"schema": "proddb"}  # change to 'proddb' in production
 
     transaction_id = Column(String(255), primary_key=True)
-    wallet_address = Column(String(255), nullable=False)
-    from_token = Column(String(255), nullable=False)
-    to_token = Column(String(255), nullable=False)
-    from_amount = Column(Float, nullable=False)
-    to_amount = Column(Float, nullable=False)
-    price = Column(Float, nullable=False)
-    value = Column(Float, nullable=False)
-    timestamp = Column(BigInteger, nullable=False)
-    fee = Column(Float, nullable=False)
-    ada_price = Column(Float, nullable=False)
-    extend_data = Column(String(255), nullable=False)
-    status = Column(
-        String(50), default="pending", nullable=False
-    )  # 'pending', 'completed', 'failed'
+    wallet_address = Column(String(255))
+    from_token = Column(String(255))
+    to_token = Column(String(255))
+    from_amount = Column(Float)
+    to_amount = Column(Float)
+    price = Column(Float)
+    value = Column(Float)
+    timestamp = Column(BigInteger)
+    fee = Column(Float)
+    ada_price = Column(Float)
+    extend_data = Column(String(255))
+    status = Column(String(50), default="pending")  # 'pending', 'completed', 'failed'

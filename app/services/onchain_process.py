@@ -22,7 +22,7 @@ MINSWAP_V2_POOL_CONTRACT = "addr1z84q0denmyep98ph3tmzwsmw0j7zau9ljmsqx6a4rvaau66
 
 # Swap async queue worker config
 SWAP_RETRY_MAX_AGE_SECONDS = 5
-SWAP_RETRY_SLEEP_SECONDS = 5
+SWAP_RETRY_SLEEP_SECONDS = 120
 SWAP_WARN_THRESHOLD = 20
 swap_queue: asyncio.Queue[tuple[str, float]] = asyncio.Queue()
 swap_worker_task: asyncio.Task | None = None
