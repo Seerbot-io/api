@@ -210,6 +210,7 @@ class TrendPair(CustomBaseModel):
     def round_value(cls, v: float) -> float:
         return round(v, 6)
 
+
 class TrendPair_V2(CustomBaseModel):
     """Trend data for a single trading pair"""
 
@@ -230,14 +231,15 @@ class TrendPair_V2(CustomBaseModel):
     def round_value(cls, v: float) -> float:
         return round(v, 6)
 
+
 class TrendResponse(CustomBaseModel):
     """Response containing all pairs grouped by trend"""
 
     uptrend: List[TrendPair_V2] = Field(default_factory=list)
     downtrend: List[TrendPair_V2] = Field(default_factory=list)
 
+
 class SignalResponse(CustomBaseModel):
     indicator: str = ""  # rsi7, rsi14, adx14, psar
     signal: str = ""  # up, down
     data: List[TrendPair_V2] = Field(default_factory=list)
-

@@ -2,13 +2,11 @@ import asyncio
 import json
 from datetime import datetime
 from enum import Enum
-import time
 from typing import List, Optional
 
 from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
 import requests
 from sqlalchemy import or_, text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import app.schemas.analysis as schemas
@@ -17,9 +15,8 @@ from app.core.config import settings
 from app.core.router_decorated import APIRouter
 from app.db.session import SessionLocal, get_db, get_tables
 from app.models.pools import Pool
-from app.models.swaps import Swap
 from app.models.tokens import Token
-from app.services.onchain_process import extract_swap_info
+from app.services.onchain_process import add_swap_to_queue
 
 router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)
@@ -200,6 +197,7 @@ def get_indicators(
         pair=response_pair, timeframe=timeframe_lower, data=data
     )
 
+
 # todo: fix this to cache the data param make cache inefficient
 # @cache("in-1m", value_type=list[schemas.TokenMarketInfo])
 def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
@@ -325,7 +323,7 @@ def get_tokens(
         offset = n
     if offset + page_size > n:
         page_size = n - offset
-    symbols = [token.symbol for token in tokens[offset : offset + page_size]]
+    symbols: list[str] = [str(token.symbol) for token in tokens[offset : offset + page_size]]
     token_data = _get_token_info_data(symbols)
     # Convert to response format
     return schemas.TokenList(total=n, page=page, tokens=token_data)
@@ -357,72 +355,21 @@ def get_token_info(
 
 
 @router.post("/swaps", tags=group_tags, response_model=schemas.MessageResponse)
-def create_swap(
+async def create_swap(
     form: schemas.SwapCreate,
     db: Session = Depends(get_db),
     # user_id: str = Depends(get_current_user)
 ) -> schemas.MessageResponse:
-    """Create a new swap transaction record.
-    - headers: Request headers containing:
-        - Content-Type: application/json
-    - body: Request body containing:
-        - order_tx_id: On chain order transaction ID (required)
-        - execution_tx_id: On chain execution transaction ID (optional)
-        - from_token: From token symbol (e.g., 'USDM') (optional)
-        - to_token: To token symbol (e.g., 'ADA') (optional)
-    OUTPUT:
-    - message: oke
-
-    """
-    try:
-        time.sleep(30) 
-        # raise Exception("test retry")
-        print("start check")
-        swap_info = extract_swap_info(form.order_tx_id)
-    except Exception as e:
-        print(e)
-        time.sleep(30) 
-        try:
-            print("re check")
-            swap_info = extract_swap_info(form.order_tx_id)
-        except Exception as e:
-            print(e)
-            raise HTTPException(status_code=400, detail="failed to extract swap info")
-    swap_info["extend_data"] = {
-        "order_tx_id": form.order_tx_id,
-        "execution_tx_id": swap_info["transaction_id"],
-    }
-    try:
-        row = Swap(
-            transaction_id=swap_info["transaction_id"],
-            wallet_address=swap_info["user"],
-            from_token=swap_info["token_in"],
-            from_amount=swap_info["amount_in"],
-            to_token=swap_info["token_out"],
-            to_amount=swap_info["amount_out"],
-            price=swap_info["price"],
-            usd_value=swap_info["usd_value"],
-            timestamp=swap_info["timestamp"],
-            fee=swap_info["fee"],
-            fee_price=swap_info["fee_price"],
-            extend_data=json.dumps(swap_info["extend_data"]),
-            status="completed",
-        )
-        db.add(row)
-        db.commit()
-    except Exception as e:
-        print(e)
-        if isinstance(e, IntegrityError):
-            raise HTTPException(status_code=400, detail="transaction already exists")
-        raise HTTPException(status_code=400, detail="failed to add swap to database")
-
+    """Queue a swap transaction for background processing."""
+    order_tx_id = form.order_tx_id.strip()
+    await add_swap_to_queue(order_tx_id)
     return schemas.MessageResponse(message="oke")
 
 
 @router.get("/swaps", tags=group_tags, response_model=schemas.SwapListResponse)
 @cache("in-1m")
 def get_swaps(
-    pair: str=None,
+    pair: Optional[str] = None,
     page: int = 1,
     limit: int = 20,
     from_time: Optional[int] = None,
@@ -453,7 +400,7 @@ def get_swaps(
     # Build dynamic SQL conditions
     where_clauses = ["status = 'completed'"]
     params: dict[str, object] = {}
-    quote_token: Optional[str] = 'ADA'
+    quote_token: Optional[str] = "ADA"
 
     # Apply pair filter if provided
     if pair:
@@ -469,7 +416,9 @@ def get_swaps(
                 detail="Invalid pair format. Both tokens are required (BASE_QUOTE)",
             )
         token_list_str = "('" + base_token + "', '" + quote_token + "')"
-        where_clauses.append(f"from_token in {token_list_str} AND to_token in {token_list_str}")
+        where_clauses.append(
+            f"from_token in {token_list_str} AND to_token in {token_list_str}"
+        )
         params["base_token"] = base_token
         params["quote_token"] = quote_token
     if from_time:
@@ -490,6 +439,7 @@ def get_swaps(
     if offset is not None and offset > 0:
         limit_offset_sql += f" OFFSET {offset}"
     # Fetch paginated rows
+    # change to proddb schema
     data_sql = text(
         f"""
         SELECT 
@@ -588,10 +538,11 @@ def _fetch_top_traders_data(
         offset_str = f" OFFSET {offset}"
 
     where_clause = " AND ".join(where_conditions)
+    # change to proddb schema
     query = f"""
         SELECT 
             wallet_address,
-            COALESCE(SUM(usd_value), 0) as total_volume,
+            COALESCE(SUM(value*ada_price), 0) as total_volume,
             COUNT(transaction_id) as total_trades
         FROM proddb.swap_transactions
         WHERE status = 'completed' and {where_clause} 
@@ -1152,7 +1103,10 @@ async def ohlc(websocket: WebSocket):
         except Exception:
             pass
 
-def _generate_predict_list(predict_scores: dict[str, float]) -> list[schemas.TrendPair_V2]:
+
+def _generate_predict_list(
+    predict_scores: dict[str, float],
+) -> list[schemas.TrendPair_V2]:
     predict_list = []
     token_list = [pair.split("/")[0] for pair in predict_scores.keys()]
     token_data = _get_token_info_data(token_list)
@@ -1162,23 +1116,27 @@ def _generate_predict_list(predict_scores: dict[str, float]) -> list[schemas.Tre
         token_data_dict[token.symbol] = token
     for pair, confidence in predict_scores.items():
         token = token_data_dict[pair.split("/")[0]]
-        predict_list.append(schemas.TrendPair_V2(
-            pair=pair,
-            timestamp=timestamp,
-            confidence=round(20 * confidence, 2),
-            price=token.price,
-            change_24h=token.change_24h,
-            volume_24h=token.volume_24h,
-            market_cap=token.market_cap,
-            logo_url=token.logo_url,
+        predict_list.append(
+            schemas.TrendPair_V2(
+                pair=pair,
+                timestamp=timestamp,
+                confidence=round(20 * confidence, 2),
+                price=token.price,
+                change_24h=token.change_24h,
+                volume_24h=token.volume_24h,
+                market_cap=token.market_cap,
+                logo_url=token.logo_url,
+            )
         )
-    )
     return predict_list
+
+
 # todo: fix this
 # - [ ] fix the price": 0
 # - [ ] fix the change_24h calculation
 # - [ ] fix the volume_24h calculation
 # - [ ] fix the market_cap calculation
+
 
 @router.get("/trend", tags=group_tags, response_model=schemas.TrendResponse)
 @cache("in-5m")
@@ -1270,7 +1228,7 @@ def get_trend(
             uptrend_pairs[row.symbol] = score
         elif score < -1:
             downtrend_pairs[row.symbol] = -score
-    
+
     uptrend_list = _generate_predict_list(uptrend_pairs)
     downtrend_list = _generate_predict_list(downtrend_pairs)
 
@@ -1296,8 +1254,8 @@ def get_predict_validate(
 @cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
 def _get_signal_adx() -> tuple[dict[str, float], dict[str, float]]:
     db: Session = SessionLocal()
-    ts = TIMEFRAME_DURATION_MAP['1h']
-    f_table = tables['f1h']  # Will be used in SQL query below
+    ts = TIMEFRAME_DURATION_MAP["1h"]
+    f_table = tables["f1h"]  # Will be used in SQL query below
     from_time = int(datetime.now().timestamp()) - 10 * ts
 
     query = f"""
@@ -1351,8 +1309,8 @@ def _get_signal_adx() -> tuple[dict[str, float], dict[str, float]]:
 @cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
 def _get_signal_rsi() -> tuple[dict[str, float], dict[str, float]]:
     db: Session = SessionLocal()
-    ts = TIMEFRAME_DURATION_MAP['1h']
-    f_table = tables['f1h']  # Will be used in SQL query below
+    ts = TIMEFRAME_DURATION_MAP["1h"]
+    f_table = tables["f1h"]  # Will be used in SQL query below
     from_time = int(datetime.now().timestamp()) - 10 * ts
 
     query = f"""
@@ -1392,8 +1350,8 @@ def _get_signal_rsi() -> tuple[dict[str, float], dict[str, float]]:
 @cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
 def _get_signal_psar() -> tuple[dict[str, float], dict[str, float]]:
     db: Session = SessionLocal()
-    ts = TIMEFRAME_DURATION_MAP['1h']
-    f_table = tables['f1h']  # Will be used in SQL query below
+    ts = TIMEFRAME_DURATION_MAP["1h"]
+    f_table = tables["f1h"]  # Will be used in SQL query below
     from_time = int(datetime.now().timestamp()) - 10 * ts
 
     query = f"""
@@ -1440,8 +1398,8 @@ def _get_signal_psar() -> tuple[dict[str, float], dict[str, float]]:
 @cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
 def _get_signal_price_24h() -> tuple[dict[str, float], dict[str, float]]:
     db: Session = SessionLocal()
-    ts = TIMEFRAME_DURATION_MAP['1h']
-    f_table = tables['f1h']  # Will be used in SQL query below
+    ts = TIMEFRAME_DURATION_MAP["1h"]
+    f_table = tables["f1h"]  # Will be used in SQL query below
     time_now = int(datetime.now().timestamp()) // ts * ts  # Round to nearest hour
     time_24h_ago = time_now - 24 * 60 * 60
 
@@ -1491,19 +1449,19 @@ def get_predict_signal(
     db: Session = Depends(get_db),
 ) -> schemas.SignalResponse:
     """Retrieves signal data for a specific indicator and signal.
-        - indicator: adx, rsi, psar, price_24h (default: adx)
-        - signal: up, down (default: up)
-        output:
-        - indicator: adx, rsi, psar, price_24h
-        - signal: up, down
-        - data: List[TrendPair_V2]
-            - pair: Trading pair symbol (e.g., 'ETH/ADA')
-            - timestamp: Timestamp of the prediction
-            - confidence: Confidence score of the prediction (0-100)
-            - price: Current price of the trading pair
-            - change_24h: Change percentage of the trading pair in the last 24 hours
-            - volume_24h: Volume of the trading pair in the last 24 hours
-            - market_cap: Market cap of the trading pair
+    - indicator: adx, rsi, psar, price_24h (default: adx)
+    - signal: up, down (default: up)
+    output:
+    - indicator: adx, rsi, psar, price_24h
+    - signal: up, down
+    - data: List[TrendPair_V2]
+        - pair: Trading pair symbol (e.g., 'ETH/ADA')
+        - timestamp: Timestamp of the prediction
+        - confidence: Confidence score of the prediction (0-100)
+        - price: Current price of the trading pair
+        - change_24h: Change percentage of the trading pair in the last 24 hours
+        - volume_24h: Volume of the trading pair in the last 24 hours
+        - market_cap: Market cap of the trading pair
     """
     if indicator == "adx":
         predict_up, predict_down = _get_signal_adx()
@@ -1517,11 +1475,18 @@ def get_predict_signal(
         raise HTTPException(status_code=400, detail=f"Invalid indicator: {indicator}")
 
     if signal == "up":
-        return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_up))
+        return schemas.SignalResponse(
+            indicator=indicator, signal=signal, data=_generate_predict_list(predict_up)
+        )
     elif signal == "down":
-        return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_down))
+        return schemas.SignalResponse(
+            indicator=indicator,
+            signal=signal,
+            data=_generate_predict_list(predict_down),
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid signal: {signal}")
+
 
 # todo: fix this
 # - [ ] implement predict_signal
@@ -1540,26 +1505,28 @@ def get_predictions(
     - change_rate: Predicted change percentage between current and predicted price
     """
 
-    data = [{
-        "icon": "https://assets.coingecko.com/coins/images/279/small/ethereum.png?1595348880",
-        "pair": "ETH/ADA", 
-        "current_price": 8.33636, 
-        "predict_price": 8.40000,
-        "change_rate": 0.100768
-    },
-    {
-        "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png?1547034860",
-        "pair": "USDM/ADA", 
-        "current_price": 2.82, 
-        "predict_price": 2.83,
-        "change_rate": 0.294
-    },
-    {
-        "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png?1547034860",
-        "pair": "SNEK/ADA", 
-        "current_price": 0.00265667166, 
-        "predict_price": 0.0026311,
-        "change_rate": -0.96
-    }]  
+    data = [
+        {
+            "icon": "https://assets.coingecko.com/coins/images/279/small/ethereum.png?1595348880",
+            "pair": "ETH/ADA",
+            "current_price": 8.33636,
+            "predict_price": 8.40000,
+            "change_rate": 0.100768,
+        },
+        {
+            "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png?1547034860",
+            "pair": "USDM/ADA",
+            "current_price": 2.82,
+            "predict_price": 2.83,
+            "change_rate": 0.294,
+        },
+        {
+            "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png?1547034860",
+            "pair": "SNEK/ADA",
+            "current_price": 0.00265667166,
+            "predict_price": 0.0026311,
+            "change_rate": -0.96,
+        },
+    ]
     response = [schemas.Prediction(**item) for item in data]
     return response
