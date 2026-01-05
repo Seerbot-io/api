@@ -641,7 +641,12 @@ def get_chart_data(
         if table_key not in tables:
             raise ValueError(f"Table not found for timeframe: {timeframe}")
 
-        f_table = tables[table_key]
+        if table_key == "f5m":
+            f_table = tables['p5m']
+        elif table_key == "f1h":
+            f_table = tables['p1h']
+        else: 
+            f_table = tables[table_key]
         timeframe_duration = TIMEFRAME_DURATION_MAP.get(timeframe, 3600)
 
         if to_time is not None:
@@ -653,15 +658,7 @@ def get_chart_data(
         else:
             rows = count_back if count_back is not None else 20
             from_time = to_time - rows * timeframe_duration
-            print(
-                "from_time",
-                from_time,
-                "to_time",
-                to_time,
-                "rows",
-                rows,
-                timeframe_duration,
-            )
+            
         # Build WHERE conditions
         where_conditions = [
             f"symbol = '{symbol_clean}'",
