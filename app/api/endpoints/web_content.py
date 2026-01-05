@@ -49,8 +49,9 @@ def get_statistics(db: Session = Depends(get_db)) -> Statistics:
         select count(*) as n_token
         from proddb.tokens
     ) a
-    join (select sum(value) liquidity, count(*) n_tx
-    from proddb.swap_transactions
+    join (select sum(value*ada_price) liquidity, count(*) n_tx
+    from proddb.swap_transactions 
+    where status = 'completed'
     ) b on true
     """
     result = db.execute(text(query)).fetchone()

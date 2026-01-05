@@ -43,6 +43,8 @@ function addMessage(type, title, body) {
     let bodyContent = '';
     if (type === 'info' && title === 'Token Info Update' && body.logo_url !== undefined) {
         bodyContent = formatTokenInfoMessage(body);
+    } else if (type === 'info' && title === 'Notice Received' && body.title !== undefined) {
+        bodyContent = formatNoticeMessage(body);
     } else {
         bodyContent = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
     }
@@ -61,6 +63,43 @@ function addMessage(type, title, body) {
     while (messagesDiv.children.length > 50) {
         messagesDiv.removeChild(messagesDiv.lastChild);
     }
+}
+
+function formatNoticeMessage(data) {
+    const iconHtml = data.icon ? 
+        `<div class="notice-icon-container">
+            <img src="${data.icon}" alt="Notice icon" class="notice-icon" onerror="this.style.display='none'">
+        </div>` : '';
+    
+    const typeColors = {
+        'info': '#2196F3',
+        'account': '#FF9800',
+        'signal': '#4CAF50'
+    };
+    const typeColor = typeColors[data.type] || '#666';
+    
+    const metaDataHtml = data.meta_data && Object.keys(data.meta_data).length > 0 ?
+        `<div class="notice-meta">
+            <strong>Metadata:</strong>
+            <pre style="margin: 5px 0; padding: 8px; background: #f5f5f5; border-radius: 4px; font-size: 12px;">${JSON.stringify(data.meta_data, null, 2)}</pre>
+        </div>` : '';
+    
+    return `
+${iconHtml}
+<div class="notice-content">
+    <div class="notice-header-info">
+        <span class="notice-type" style="background: ${typeColor}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase;">${data.type || 'info'}</span>
+        <span class="notice-id" style="color: #666; font-size: 12px;">ID: ${data.id}</span>
+    </div>
+    <div class="notice-title" style="font-size: 16px; font-weight: bold; margin: 10px 0 5px 0; color: #333;">${data.title || 'No title'}</div>
+    <div class="notice-message" style="margin: 5px 0; color: #555; line-height: 1.5;">${data.message || 'No message'}</div>
+    ${metaDataHtml}
+    <div class="notice-dates" style="margin-top: 10px; font-size: 11px; color: #999;">
+        <div>Created: ${data.createdAt || data.created_at || 'N/A'}</div>
+        <div>Updated: ${data.updatedAt || data.updated_at || 'N/A'}</div>
+    </div>
+</div>
+    `.trim();
 }
 
 function formatTokenInfoMessage(data) {
@@ -159,13 +198,28 @@ function updateChannelForm() {
     const channelType = document.getElementById('channelType').value;
     const barsForm = document.getElementById('barsForm');
     const tokenForm = document.getElementById('tokenForm');
+    const noticesForm = document.getElementById('noticesForm');
+    const subscribeBtn = document.getElementById('subscribeBtn');
+    const unsubscribeBtn = document.getElementById('unsubscribeBtn');
     
     if (channelType === 'ohlc') {
         barsForm.style.display = 'block';
         tokenForm.style.display = 'none';
+        noticesForm.style.display = 'none';
+        subscribeBtn.style.display = 'inline-block';
+        unsubscribeBtn.style.display = 'inline-block';
     } else if (channelType === 'token_info') {
         barsForm.style.display = 'none';
         tokenForm.style.display = 'block';
+        noticesForm.style.display = 'none';
+        subscribeBtn.style.display = 'inline-block';
+        unsubscribeBtn.style.display = 'inline-block';
+    } else if (channelType === 'notices') {
+        barsForm.style.display = 'none';
+        tokenForm.style.display = 'none';
+        noticesForm.style.display = 'block';
+        subscribeBtn.style.display = 'inline-block';
+        unsubscribeBtn.style.display = 'inline-block';
     }
 }
 
@@ -191,6 +245,41 @@ function buildChannel() {
         }
         
         return `token_info:${symbol}`;
+    } else if (channelType === 'notices') {
+        // Format: notices or notices:{type}|{after_id}|{order}|{limit}
+        // Note: Parameters must be in order. If you specify a later parameter,
+        // you must include all previous ones (even if empty or default).
+        const noticeType = document.getElementById('noticeType').value.trim();
+        const afterId = document.getElementById('noticeAfterId').value.trim();
+        const order = document.getElementById('noticeOrder').value;
+        const limit = document.getElementById('noticeLimit').value.trim();
+        
+        // Check if we need to include any parameters
+        const hasType = noticeType && noticeType !== '';
+        const hasAfterId = afterId && afterId !== '';
+        const hasCustomOrder = order && order !== 'desc';
+        const hasCustomLimit = limit && limit !== '' && limit !== '100';
+        
+        // If no custom parameters, return simple 'notices'
+        if (!hasType && !hasAfterId && !hasCustomOrder && !hasCustomLimit) {
+            return 'notices';
+        }
+        
+        // Build parts array - include all parameters up to the last one specified
+        const parts = [];
+        parts.push(noticeType || ''); // Always include type (even if empty)
+        
+        if (hasAfterId || hasCustomOrder || hasCustomLimit) {
+            parts.push(afterId || ''); // Include after_id if any later param is set
+            if (hasCustomOrder || hasCustomLimit) {
+                parts.push(order || 'desc'); // Include order if limit is set
+                if (hasCustomLimit) {
+                    parts.push(limit);
+                }
+            }
+        }
+        
+        return `notices:${parts.join('|')}`;
     }
     
     return null;
@@ -263,6 +352,26 @@ function connect() {
                             change_24h: tokenData.change_24h,
                             market_cap: tokenData.market_cap
                         });
+                    } else if (data.type === 'notices') {
+                        // Handle notices channel update
+                        const noticesData = data.data;
+                        if (noticesData.notices && Array.isArray(noticesData.notices)) {
+                            // Display each notice
+                            noticesData.notices.forEach(notice => {
+                                addMessage('info', 'Notice Received', {
+                                    id: notice.id,
+                                    type: notice.type,
+                                    icon: notice.icon,
+                                    title: notice.title,
+                                    message: notice.message,
+                                    createdAt: notice.createdAt || notice.created_at,
+                                    updatedAt: notice.updatedAt || notice.updated_at,
+                                    meta_data: notice.meta_data
+                                });
+                            });
+                        } else {
+                            addMessage('info', 'Notices Update', noticesData);
+                        }
                     } else {
                         addMessage('info', 'Update', data);
                     }
@@ -380,6 +489,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const resolutionEl = document.getElementById('resolution');
     if (resolutionEl) {
         resolutionEl.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') subscribe();
+        });
+    }
+    
+    const noticeTypeEl = document.getElementById('noticeType');
+    if (noticeTypeEl) {
+        noticeTypeEl.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') subscribe();
+        });
+    }
+    
+    const noticeAfterIdEl = document.getElementById('noticeAfterId');
+    if (noticeAfterIdEl) {
+        noticeAfterIdEl.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') subscribe();
+        });
+    }
+    
+    const noticeLimitEl = document.getElementById('noticeLimit');
+    if (noticeLimitEl) {
+        noticeLimitEl.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') subscribe();
         });
     }

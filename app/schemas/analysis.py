@@ -6,42 +6,15 @@ from app.schemas.my_base_model import CustomBaseModel
 
 
 class Prediction(CustomBaseModel):
-    symbol: str = ""
-    date: str = ""
-    price: float = 0
-    prediction: float = 0
-    price_change: float = 0
+    icon: str = ""
+    pair: str = ""
+    # update_time: str = ""
+    # target_time: str = ""
+    current_price: float = 0
+    predict_price: float = 0
+    change_rate: float = 0
 
-    @field_validator("price")
-    def round_price(cls, v: float) -> float:
-        return round(v, 6)
-
-    @field_validator("prediction")
-    def round_prediction(cls, v: float) -> float:
-        return round(v, 6)
-
-    @field_validator("price_change")
-    def round_pc(cls, v: float) -> float:
-        return round(v, 6)
-
-
-class PredictionV2(CustomBaseModel):
-    symbol: str = ""
-    update_time: str = ""
-    target_time: str = ""
-    price: float = 0
-    prediction: float = 0
-    price_change: float = 0
-
-    @field_validator("price")
-    def round_price(cls, v: float) -> float:
-        return round(v, 6)
-
-    @field_validator("prediction")
-    def round_prediction(cls, v: float) -> float:
-        return round(v, 6)
-
-    @field_validator("price_change")
+    @field_validator("change_rate")
     def round_pc(cls, v: float) -> float:
         return round(v, 6)
 
@@ -179,9 +152,11 @@ class MessageResponse(CustomBaseModel):
 
 class SwapTransaction(CustomBaseModel):
     transaction_id: str = ""
+    side: str = "unknown"
+    pair: str = ""
     from_token: str = ""
-    from_amount: float = 0.0
     to_token: str = ""
+    from_amount: float = 0.0
     to_amount: float = 0.0
     price: float = 0.0
     timestamp: int = 0
@@ -193,7 +168,7 @@ class SwapTransaction(CustomBaseModel):
 
 
 class SwapListResponse(CustomBaseModel):
-    transactions: List[SwapTransaction] = []
+    transactions: List[SwapTransaction] = Field(default_factory=list)
     total: int = 0
     page: int = 1
     limit: int = 20
@@ -236,8 +211,35 @@ class TrendPair(CustomBaseModel):
         return round(v, 6)
 
 
+class TrendPair_V2(CustomBaseModel):
+    """Trend data for a single trading pair"""
+
+    pair: str = ""
+    timestamp: int = 0
+    confidence: float = 0.0  # 0-100
+    price: float = 0.0
+    change_24h: float = 0.0
+    volume_24h: float = 0.0
+    market_cap: float = 0.0
+    logo_url: str = ""
+
+    @field_validator("confidence")
+    def round_confidence(cls, v: float) -> float:
+        return round(v, 2)
+
+    @field_validator("price", "change_24h", "volume_24h", "market_cap")
+    def round_value(cls, v: float) -> float:
+        return round(v, 6)
+
+
 class TrendResponse(CustomBaseModel):
     """Response containing all pairs grouped by trend"""
 
-    uptrend: List[TrendPair] = Field(default_factory=list)
-    downtrend: List[TrendPair] = Field(default_factory=list)
+    uptrend: List[TrendPair_V2] = Field(default_factory=list)
+    downtrend: List[TrendPair_V2] = Field(default_factory=list)
+
+
+class SignalResponse(CustomBaseModel):
+    indicator: str = ""  # rsi7, rsi14, adx14, psar
+    signal: str = ""  # up, down
+    data: List[TrendPair_V2] = Field(default_factory=list)

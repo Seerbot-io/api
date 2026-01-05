@@ -9,6 +9,8 @@ from app.core.config import settings
 # Create the SQLAlchemy engine
 engine = create_engine(
     settings.DATABASE_URL,
+    pool_size=10,
+    max_overflow=20,
     connect_args={"connect_timeout": 30},
     pool_pre_ping=True,
     pool_recycle=3600,

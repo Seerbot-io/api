@@ -1,12 +1,17 @@
 # pyright: reportAttributeAccessIssue=false
 
-from datetime import datetime
+import asyncio
+import time
+import json
 
+from psycopg2 import IntegrityError
 import requests
 from blockfrost.utils import Namespace
 from pycardano import BlockFrostChainContext
 
 from app.core.config import settings
+from app.db.session import SessionLocal
+from app.models.swaps import Swap
 
 context = BlockFrostChainContext(
     project_id=settings.BLOCKFROST_API_KEY,
@@ -15,7 +20,15 @@ context = BlockFrostChainContext(
 
 MINSWAP_V2_POOL_CONTRACT = "addr1z84q0denmyep98ph3tmzwsmw0j7zau9ljmsqx6a4rvaau66j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq777e2a"
 
+# Swap async queue worker config
+SWAP_RETRY_MAX_AGE_SECONDS = 5
+SWAP_RETRY_SLEEP_SECONDS = 120
+SWAP_WARN_THRESHOLD = 20
+swap_queue: asyncio.Queue[tuple[str, float]] = asyncio.Queue()
+swap_worker_task: asyncio.Task | None = None
 
+
+# not use
 def sum_utxos_amount(utxos: list[Namespace], only: list[str] = []) -> dict:
     total = {}
     try:
@@ -30,6 +43,7 @@ def sum_utxos_amount(utxos: list[Namespace], only: list[str] = []) -> dict:
     return total
 
 
+# not use
 def get_change_amount_utxo(
     utxo_inputs: list[Namespace], utxo_outputs: list[Namespace], only: list[str] = []
 ) -> dict:
@@ -50,6 +64,7 @@ def get_change_amount_utxo(
     return change
 
 
+# not use
 def get_change_amount(tx_list: list[str], only: list[str] = []) -> dict:
     global context
     utxo_inputs = []
@@ -61,6 +76,7 @@ def get_change_amount(tx_list: list[str], only: list[str] = []) -> dict:
     return get_change_amount_utxo(utxo_inputs, utxo_outputs, only)
 
 
+# not use
 def get_executed_tx(
     user: str, market_order_tx: str, token_in: str, token_out: str
 ) -> str:
@@ -84,6 +100,7 @@ def get_executed_tx(
     raise Exception(f"Market order tx not found: {market_order_tx}")
 
 
+# not use
 def extract_swap_info_v0(
     market_order_tx: str,
     order_executed_tx: str = "",
@@ -94,12 +111,11 @@ def extract_swap_info_v0(
     try:
         mo_utxos = context.api.transaction_utxos(market_order_tx)
         user = mo_utxos.inputs[0].address
-        # print(user, market_order_tx, order_executed_tx, token_in, token_out)
         if order_executed_tx == "":
             order_executed_tx = get_executed_tx(
                 user, market_order_tx, token_in, token_out
             )
-        # print(order_executed_tx)
+        print(context.api.transaction(order_executed_tx))
         timestamp = context.api.transaction(order_executed_tx).block_time
         oe_utxos = context.api.transaction_utxos(order_executed_tx)
     except Exception as e:
@@ -144,10 +160,8 @@ def extract_swap_info(market_order_tx: str) -> dict:
     price_res = requests.get(
         "https://agg-api.minswap.org/aggregator/ada-price?currency=usd"
     )
-    ada_price = price_res.json().get("value", {"price": 1}).get("price")
-    mo_utxos = context.api.transaction_utxos(
-        "ab79c2bdc3890c1cc6097dc16dbdce2a3819d7f246669b0aa5f767a43a1a68f3"
-    )
+    ada_price = float(price_res.json().get("value", {"price": 1}).get("price", 1))
+    mo_utxos = context.api.transaction_utxos(market_order_tx)
     user = mo_utxos.inputs[0].address
 
     url = "https://monorepo-mainnet-prod.minswap.org/aggregator/orders"
@@ -170,6 +184,7 @@ def extract_swap_info(market_order_tx: str) -> dict:
     detail = order.get("details", {})
     amount_in = float(detail.get("input_amount", 0))
     amount_out = float(detail.get("executed_amount", 0))
+    price = amount_out / amount_in
     fee = round(
         float(order.get("batcher_fee", 0)) + float(detail.get("trading_fee", 0)), 6
     )  # not all the fee
@@ -180,14 +195,13 @@ def extract_swap_info(market_order_tx: str) -> dict:
         token_in = asset_a.get("ticker")
         token_out = asset_b.get("ticker")
         value = asset_a.get("price_by_ada", 1) * amount_in
-        price = asset_b.get("price_by_ada", 1) / asset_a.get("price_by_ada", 1)
     else:
         token_in = asset_b.get("ticker")
         token_out = asset_a.get("ticker")
         value = asset_b.get("price_by_ada", 1) * amount_out
-        price = asset_a.get("price_by_ada", 1) / asset_b.get("price_by_ada", 1)
     return {
-        "transaction_id": order.get("updated_tx_id", ""),
+        "transaction_id": market_order_tx,
+        "execution_tx_id": order.get("updated_tx_id", ""),
         "user": user,
         "token_in": token_in,
         "amount_in": amount_in,
@@ -196,6 +210,119 @@ def extract_swap_info(market_order_tx: str) -> dict:
         "price": price,
         "value": value,
         "fee": fee,
-        "fee_price": ada_price,
-        "timestamp": int(datetime.fromisoformat(order.get("updated_at")).timestamp()),
+        "ada_price": ada_price,
     }
+
+
+async def add_swap_to_queue(order_tx_id: str) -> None:
+    """Add a swap order tx ID to the processing queue."""
+    global swap_queue, swap_worker_task
+    await swap_queue.put((order_tx_id, time.time()))
+    queue_size = swap_queue.qsize()
+    if queue_size >= SWAP_WARN_THRESHOLD:
+        print(f"[swap-queue] warning: queue size {queue_size} exceeds threshold")
+    await _ensure_swap_worker()
+
+
+async def _persist_swap(swap_info: dict, status: str = "completed") -> None:
+    """Write a swap row to DB in a thread to avoid blocking the event loop."""
+    if status not in ["pending", "completed", "failed"]:
+        status = "pending"
+
+    def _write():
+        db = SessionLocal()
+        try:
+            row = Swap(
+                transaction_id=swap_info.get("transaction_id"),
+                wallet_address=swap_info.get("user"),
+                from_token=swap_info.get("token_in"),
+                from_amount=swap_info.get("amount_in"),
+                to_token=swap_info.get("token_out"),
+                to_amount=swap_info.get("amount_out"),
+                price=swap_info.get("price"),
+                value=swap_info.get("value"),
+                timestamp=swap_info.get("timestamp"),
+                fee=swap_info.get("fee"),
+                ada_price=swap_info.get("ada_price"),
+                extend_data=json.dumps(
+                    {
+                        "order_tx_id": swap_info.get("transaction_id", ""),
+                        "execution_tx_id": swap_info.get("execution_tx_id", ""),
+                    }
+                ),
+                status=status,
+            )
+
+            db.merge(row)  # on conflict, update existing row
+            db.commit()
+        finally:
+            db.close()
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _write)
+
+
+async def _process_swap_item(order_tx_id: str, received_at: float) -> bool:
+    """Process a single swap; return True on success, False to trigger retry."""
+    loop = asyncio.get_running_loop()
+    try:
+        swap_info = await loop.run_in_executor(None, extract_swap_info, order_tx_id)
+        await _persist_swap(swap_info, status="completed")
+        print(f"[swap-queue] processed {order_tx_id}")
+        return True
+    except IntegrityError as e:
+        print(f"[swap-queue] duplicate, drop {order_tx_id}: {e}")
+        return True  # do not retry duplicates
+    except Exception as e:
+        print(f"[swap-queue] error processing {order_tx_id}: {e}")
+        return False
+
+
+async def _swap_worker():
+    """Drain the swap queue until empty, then stop."""
+    global swap_worker_task
+    while True:
+        try:
+            order_tx_id, received_at = swap_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            print("[swap-queue] idle, stopping worker")
+            swap_worker_task = None
+            return
+
+        try:
+            success = await _process_swap_item(order_tx_id, received_at)
+        finally:
+            swap_queue.task_done()
+
+        if not success:
+            age = time.time() - received_at
+            if age <= SWAP_RETRY_MAX_AGE_SECONDS:
+                await swap_queue.put((order_tx_id, received_at))
+                print(
+                    f"[swap-queue] requeue {order_tx_id} (age={age:.1f}s), sleeping {SWAP_RETRY_SLEEP_SECONDS}s"
+                )
+                await asyncio.sleep(SWAP_RETRY_SLEEP_SECONDS)
+            else:
+                print(f"[swap-queue] drop stale {order_tx_id} (age={age:.1f}s)")
+                swap_info = {
+                    "transaction_id": order_tx_id,
+                    "execution_tx_id": "",
+                    "user": "",
+                    "token_in": "",
+                    "amount_in": 0,
+                    "token_out": "",
+                    "amount_out": 0,
+                    "price": 0,
+                    "value": 0,
+                    "fee": 0,
+                    "ada_price": 0,
+                    "status": "failed",
+                }
+                await _persist_swap(swap_info, status="failed")
+
+
+async def _ensure_swap_worker():
+    global swap_worker_task
+    if swap_worker_task is None or swap_worker_task.done():
+        swap_worker_task = asyncio.create_task(_swap_worker())
+        print("[swap-queue] worker started")
