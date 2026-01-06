@@ -219,7 +219,7 @@ def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
         ) a left join(
             select price, ((price - price_24h) / price) * 100 as change_24h
             from (
-                select open_time, close as price, lead(close) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
+                select open_time, close as price, lead(close, 3) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
                 from proddb.coin_prices_5m cph
                 where symbol='USDM/ADA'
                     and ((open_time >= {time_24h_ago} - 900 and open_time <= {time_24h_ago}) -- range of 20 minutes for missing data (4 records)
