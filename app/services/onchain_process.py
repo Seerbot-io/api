@@ -21,8 +21,8 @@ context = BlockFrostChainContext(
 MINSWAP_V2_POOL_CONTRACT = "addr1z84q0denmyep98ph3tmzwsmw0j7zau9ljmsqx6a4rvaau66j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq777e2a"
 
 # Swap async queue worker config
-SWAP_RETRY_MAX_AGE_SECONDS = 5
-SWAP_RETRY_SLEEP_SECONDS = 120
+SWAP_RETRY_MAX_AGE_SECONDS = 120
+SWAP_RETRY_SLEEP_SECONDS = 5
 SWAP_WARN_THRESHOLD = 20
 swap_queue: asyncio.Queue[tuple[str, float]] = asyncio.Queue()
 swap_worker_task: asyncio.Task | None = None
