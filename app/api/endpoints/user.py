@@ -43,7 +43,7 @@ def _get_notices(
     after_id: Optional[int] = None,
 ) -> List[NoticeResponse]:
     # Filter by type if provided
-    db=SessionLocal()
+    db = SessionLocal()
     query = db.query(Notice)
     if type:
         allowed_types = ["info", "account", "signal", "all"]

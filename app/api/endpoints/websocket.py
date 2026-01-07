@@ -8,7 +8,6 @@ from app.api.endpoints.analysis import _get_token_info_data
 from app.api.endpoints.charting import SUPPORTED_RESOLUTIONS, get_chart_data
 from app.api.endpoints.user import _get_notices
 from app.core.router_decorated import APIRouter
-from app.db.session import SessionLocal
 from app.schemas.notice import NoticeListResponse
 
 router = APIRouter()

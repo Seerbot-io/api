@@ -199,6 +199,7 @@ def get_indicators(
         pair=response_pair, timeframe=timeframe_lower, data=data
     )
 
+
 # todo: fix this to cache the data param make cache inefficient
 # @cache("in-1m", value_type=list[schemas.TokenMarketInfo])
 def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
@@ -646,10 +647,10 @@ def get_chart_data(
             raise ValueError(f"Table not found for timeframe: {timeframe}")
 
         if table_key == "f5m":
-            f_table = tables['p5m']
+            f_table = tables["p5m"]
         elif table_key == "f1h":
-            f_table = tables['p1h']
-        else: 
+            f_table = tables["p1h"]
+        else:
             f_table = tables[table_key]
         timeframe_duration = TIMEFRAME_DURATION_MAP.get(timeframe, 3600)
 
@@ -662,7 +663,7 @@ def get_chart_data(
         else:
             rows = count_back if count_back is not None else 20
             from_time = to_time - rows * timeframe_duration
-            
+
         # Build WHERE conditions
         where_conditions = [
             f"symbol = '{symbol_clean}'",
@@ -1099,7 +1100,10 @@ async def ohlc(websocket: WebSocket):
         except Exception:
             pass
 
-def _generate_predict_list(predict_scores: dict[str, float]) -> list[schemas.TrendPair_V2]:
+
+def _generate_predict_list(
+    predict_scores: dict[str, float],
+) -> list[schemas.TrendPair_V2]:
     predict_list = []
     token_list = [pair.split("/")[0] for pair in predict_scores.keys()]
     token_data = _get_token_info_data(token_list)
@@ -1109,23 +1113,27 @@ def _generate_predict_list(predict_scores: dict[str, float]) -> list[schemas.Tre
         token_data_dict[token.symbol] = token
     for pair, confidence in predict_scores.items():
         token = token_data_dict[pair.split("/")[0]]
-        predict_list.append(schemas.TrendPair_V2(
-            pair=pair,
-            timestamp=timestamp,
-            confidence=round(20 * confidence, 2),
-            price=token.price,
-            change_24h=token.change_24h,
-            volume_24h=token.volume_24h,
-            market_cap=token.market_cap,
-            logo_url=token.logo_url,
+        predict_list.append(
+            schemas.TrendPair_V2(
+                pair=pair,
+                timestamp=timestamp,
+                confidence=round(20 * confidence, 2),
+                price=token.price,
+                change_24h=token.change_24h,
+                volume_24h=token.volume_24h,
+                market_cap=token.market_cap,
+                logo_url=token.logo_url,
+            )
         )
-    )
     return predict_list
+
+
 # todo: fix this
 # - [ ] fix the price": 0
 # - [ ] fix the change_24h calculation
 # - [ ] fix the volume_24h calculation
 # - [ ] fix the market_cap calculation
+
 
 @router.get("/trend", tags=group_tags, response_model=schemas.TrendResponse)
 @cache("in-5m")
@@ -1217,7 +1225,7 @@ def get_trend(
             uptrend_pairs[row.symbol] = score
         elif score < -1:
             downtrend_pairs[row.symbol] = -score
-    
+
     uptrend_list = _generate_predict_list(uptrend_pairs)
     downtrend_list = _generate_predict_list(downtrend_pairs)
 
@@ -1242,8 +1250,8 @@ def get_predict_validate(
 @cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
 def _get_signal_adx() -> tuple[dict[str, float], dict[str, float]]:
     db: Session = SessionLocal()
-    ts = TIMEFRAME_DURATION_MAP['1h']
-    f_table = tables['f1h']  # Will be used in SQL query below
+    ts = TIMEFRAME_DURATION_MAP["1h"]
+    f_table = tables["f1h"]  # Will be used in SQL query below
     from_time = int(datetime.now().timestamp()) - 10 * ts
 
     query = f"""
@@ -1297,8 +1305,8 @@ def _get_signal_adx() -> tuple[dict[str, float], dict[str, float]]:
 @cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
 def _get_signal_rsi() -> tuple[dict[str, float], dict[str, float]]:
     db: Session = SessionLocal()
-    ts = TIMEFRAME_DURATION_MAP['1h']
-    f_table = tables['f1h']  # Will be used in SQL query below
+    ts = TIMEFRAME_DURATION_MAP["1h"]
+    f_table = tables["f1h"]  # Will be used in SQL query below
     from_time = int(datetime.now().timestamp()) - 10 * ts
 
     query = f"""
@@ -1338,8 +1346,8 @@ def _get_signal_rsi() -> tuple[dict[str, float], dict[str, float]]:
 @cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
 def _get_signal_psar() -> tuple[dict[str, float], dict[str, float]]:
     db: Session = SessionLocal()
-    ts = TIMEFRAME_DURATION_MAP['1h']
-    f_table = tables['f1h']  # Will be used in SQL query below
+    ts = TIMEFRAME_DURATION_MAP["1h"]
+    f_table = tables["f1h"]  # Will be used in SQL query below
     from_time = int(datetime.now().timestamp()) - 10 * ts
 
     query = f"""
@@ -1386,8 +1394,8 @@ def _get_signal_psar() -> tuple[dict[str, float], dict[str, float]]:
 @cache("in-5m", value_type=tuple[dict[str, float], dict[str, float]])
 def _get_signal_price_24h() -> tuple[dict[str, float], dict[str, float]]:
     db: Session = SessionLocal()
-    ts = TIMEFRAME_DURATION_MAP['1h']
-    f_table = tables['f1h']  # Will be used in SQL query below
+    ts = TIMEFRAME_DURATION_MAP["1h"]
+    f_table = tables["f1h"]  # Will be used in SQL query below
     time_now = int(datetime.now().timestamp()) // ts * ts  # Round to nearest hour
     time_24h_ago = time_now - 24 * 60 * 60
 
@@ -1437,19 +1445,19 @@ def get_predict_signal(
     db: Session = Depends(get_db),
 ) -> schemas.SignalResponse:
     """Retrieves signal data for a specific indicator and signal.
-        - indicator: adx, rsi, psar, price_24h (default: adx)
-        - signal: up, down (default: up)
-        output:
-        - indicator: adx, rsi, psar, price_24h
-        - signal: up, down
-        - data: List[TrendPair_V2]
-            - pair: Trading pair symbol (e.g., 'ETH/ADA')
-            - timestamp: Timestamp of the prediction
-            - confidence: Confidence score of the prediction (0-100)
-            - price: Current price of the trading pair
-            - change_24h: Change percentage of the trading pair in the last 24 hours
-            - volume_24h: Volume of the trading pair in the last 24 hours
-            - market_cap: Market cap of the trading pair
+    - indicator: adx, rsi, psar, price_24h (default: adx)
+    - signal: up, down (default: up)
+    output:
+    - indicator: adx, rsi, psar, price_24h
+    - signal: up, down
+    - data: List[TrendPair_V2]
+        - pair: Trading pair symbol (e.g., 'ETH/ADA')
+        - timestamp: Timestamp of the prediction
+        - confidence: Confidence score of the prediction (0-100)
+        - price: Current price of the trading pair
+        - change_24h: Change percentage of the trading pair in the last 24 hours
+        - volume_24h: Volume of the trading pair in the last 24 hours
+        - market_cap: Market cap of the trading pair
     """
     if indicator == "adx":
         predict_up, predict_down = _get_signal_adx()
@@ -1463,11 +1471,18 @@ def get_predict_signal(
         raise HTTPException(status_code=400, detail=f"Invalid indicator: {indicator}")
 
     if signal == "up":
-        return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_up))
+        return schemas.SignalResponse(
+            indicator=indicator, signal=signal, data=_generate_predict_list(predict_up)
+        )
     elif signal == "down":
-        return schemas.SignalResponse(indicator=indicator, signal=signal, data=_generate_predict_list(predict_down))
+        return schemas.SignalResponse(
+            indicator=indicator,
+            signal=signal,
+            data=_generate_predict_list(predict_down),
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid signal: {signal}")
+
 
 # todo: fix this
 # - [ ] implement predict_signal
@@ -1486,26 +1501,28 @@ def get_predictions(
     - change_rate: Predicted change percentage between current and predicted price
     """
 
-    data = [{
-        "icon": "https://assets.coingecko.com/coins/images/279/small/ethereum.png?1595348880",
-        "pair": "ETH/ADA", 
-        "current_price": 8.33636, 
-        "predict_price": 8.40000,
-        "change_rate": 0.100768
-    },
-    {
-        "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png?1547034860",
-        "pair": "USDM/ADA", 
-        "current_price": 2.82, 
-        "predict_price": 2.83,
-        "change_rate": 0.294
-    },
-    {
-        "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png?1547034860",
-        "pair": "SNEK/ADA", 
-        "current_price": 0.00265667166, 
-        "predict_price": 0.0026311,
-        "change_rate": -0.96
-    }]  
+    data = [
+        {
+            "icon": "https://assets.coingecko.com/coins/images/279/small/ethereum.png?1595348880",
+            "pair": "ETH/ADA",
+            "current_price": 8.33636,
+            "predict_price": 8.40000,
+            "change_rate": 0.100768,
+        },
+        {
+            "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png?1547034860",
+            "pair": "USDM/ADA",
+            "current_price": 2.82,
+            "predict_price": 2.83,
+            "change_rate": 0.294,
+        },
+        {
+            "icon": "https://assets.coingecko.com/coins/images/975/small/cardano.png?1547034860",
+            "pair": "SNEK/ADA",
+            "current_price": 0.00265667166,
+            "predict_price": 0.0026311,
+            "change_rate": -0.96,
+        },
+    ]
     response = [schemas.Prediction(**item) for item in data]
     return response
