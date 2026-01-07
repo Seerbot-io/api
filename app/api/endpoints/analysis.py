@@ -7,7 +7,6 @@ from typing import List, Optional
 from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
 import requests
 from sqlalchemy import or_, text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import app.schemas.analysis as schemas
@@ -16,9 +15,8 @@ from app.core.config import settings
 from app.core.router_decorated import APIRouter
 from app.db.session import SessionLocal, get_db, get_tables
 from app.models.pools import Pool
-from app.models.swaps import Swap
 from app.models.tokens import Token
-from app.services.onchain_process import extract_swap_info
+from app.services.onchain_process import add_swap_to_queue
 
 router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)
@@ -328,7 +326,9 @@ def get_tokens(
         offset = n
     if offset + page_size > n:
         page_size = n - offset
-    symbols = [token.symbol for token in tokens[offset : offset + page_size]]
+    symbols: list[str] = [
+        str(token.symbol) for token in tokens[offset : offset + page_size]
+    ]
     token_data = _get_token_info_data(symbols)
     # Convert to response format
     return schemas.TokenList(total=n, page=page, tokens=token_data)
@@ -360,67 +360,23 @@ def get_token_info(
 
 
 @router.post("/swaps", tags=group_tags, response_model=schemas.MessageResponse)
-def create_swap(
+async def create_swap(
     form: schemas.SwapCreate,
     db: Session = Depends(get_db),
     # user_id: str = Depends(get_current_user)
 ) -> schemas.MessageResponse:
-    """Create a new swap transaction record.
-    - headers: Request headers containing:
-        - Content-Type: application/json
-    - body: Request body containing:
-        - order_tx_id: On chain order transaction ID (required)
-        - execution_tx_id: On chain execution transaction ID (optional)
-        - from_token: From token symbol (e.g., 'USDM') (optional)
-        - to_token: To token symbol (e.g., 'ADA') (optional)
-    OUTPUT:
-    - message: oke
-
-    """
-    try:
-        swap_info = extract_swap_info(form.order_tx_id)
-        # print(swap_info)
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=400, detail="failed to extract swap info")
-    swap_info["extend_data"] = {
-        "order_tx_id": form.order_tx_id,
-        "execution_tx_id": swap_info["transaction_id"],
-    }
-    try:
-        row = Swap(
-            transaction_id=swap_info["transaction_id"],
-            wallet_address=swap_info["user"],
-            from_token=swap_info["token_in"],
-            from_amount=swap_info["amount_in"],
-            to_token=swap_info["token_out"],
-            to_amount=swap_info["amount_out"],
-            price=swap_info["price"],
-            usd_value=swap_info["usd_value"],
-            timestamp=swap_info["timestamp"],
-            fee=swap_info["fee"],
-            fee_price=swap_info["fee_price"],
-            extend_data=json.dumps(swap_info["extend_data"]),
-            status="completed",
-        )
-        db.add(row)
-        db.commit()
-    except Exception as e:
-        print(e)
-        if isinstance(e, IntegrityError):
-            raise HTTPException(status_code=400, detail="transaction already exists")
-        raise HTTPException(status_code=400, detail="failed to add swap to database")
-
+    """Queue a swap transaction for background processing."""
+    order_tx_id = form.order_tx_id.strip()
+    await add_swap_to_queue(order_tx_id)
     return schemas.MessageResponse(message="oke")
 
 
 @router.get("/swaps", tags=group_tags, response_model=schemas.SwapListResponse)
 @cache("in-1m")
 def get_swaps(
+    pair: Optional[str] = None,
     page: int = 1,
     limit: int = 20,
-    from_token: Optional[str] = None,
-    to_token: Optional[str] = None,
     from_time: Optional[int] = None,
     to_time: Optional[int] = None,
     user_id: Optional[str] = None,  # deprecated, use wallet_address instead
@@ -430,8 +386,7 @@ def get_swaps(
 
     - page: Page number (default: 1)
     - limit: Number of records per page (default: 20, max: 100)
-    - from_token: Filter by source token (optional)
-    - to_token: Filter by destination token (optional)
+    - pair: Filter by trading pair in format BASE_QUOTE (e.g., USDM_ADA) (optional)
     - from_time: Start timestamp filter in seconds (optional)
     - to_time: End timestamp filter in seconds (optional)
     - user_id: Filter by wallet address (optional)
@@ -447,41 +402,90 @@ def get_swaps(
     limit = max(1, min(100, limit))
     offset = (page - 1) * limit
 
-    # Build query
-    query = db.query(Swap)
+    # Build dynamic SQL conditions
+    where_clauses = ["status = 'completed'"]
+    params: dict[str, object] = {}
+    quote_token: Optional[str] = "ADA"
 
-    # Apply filters
-    if from_token:
-        query = query.filter(Swap.from_token == from_token.strip())
-    if to_token:
-        query = query.filter(Swap.to_token == to_token.strip())
+    # Apply pair filter if provided
+    if pair:
+        if "_" not in pair:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid pair format. Use BASE_QUOTE (e.g., USDM_ADA)",
+            )
+        base_token, quote_token = [p.strip() for p in pair.split("_", 1)]
+        if not base_token or not quote_token:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid pair format. Both tokens are required (BASE_QUOTE)",
+            )
+        token_list_str = "('" + base_token + "', '" + quote_token + "')"
+        where_clauses.append(
+            f"from_token in {token_list_str} AND to_token in {token_list_str}"
+        )
+        params["base_token"] = base_token
+        params["quote_token"] = quote_token
     if from_time:
-        query = query.filter(Swap.timestamp >= from_time)
+        where_clauses.append("timestamp >= :from_time")
+        params["from_time"] = from_time
     if to_time:
-        query = query.filter(Swap.timestamp <= to_time)
+        where_clauses.append("timestamp <= :to_time")
+        params["to_time"] = to_time
     if user_id:
         # Filter by user_id (wallet address) when user_id is provided
-        query = query.filter(Swap.user_id == user_id)
+        where_clauses.append("user_id = :user_id")
+        params["user_id"] = user_id
 
-    # Get total count
-    total = query.count()
+    where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
+    limit_offset_sql = ""
+    if limit is not None and limit > 0:
+        limit_offset_sql += f"LIMIT {limit}"
+    if offset is not None and offset > 0:
+        limit_offset_sql += f" OFFSET {offset}"
+    # Fetch paginated rows
+    # change to proddb schema
+    data_sql = text(
+        f"""
+        SELECT 
+            transaction_id,
+            case 
+                when from_token = '{quote_token}' then CONCAT(to_token, '/', from_token) 
+                else CONCAT(from_token, '/', to_token) 
+            end as pair,
+            case when from_token = '{quote_token}' then 'buy' else 'sell' end as side,
+            from_token,
+            to_token,
+            from_amount,
+            to_amount,
+            case when from_token = '{quote_token}' then from_amount / to_amount else to_amount / from_amount end as price,
+            -- price,
+            timestamp,
+            status
+        FROM proddb.swap_transactions
+        WHERE {where_sql}
+        ORDER BY timestamp DESC
+        {limit_offset_sql}
+        """
+    )
+    swaps = db.execute(data_sql, params).fetchall()
 
-    # Apply pagination and ordering
-    swaps = query.order_by(Swap.timestamp.desc()).offset(offset).limit(limit).all()
-
+    total = len(swaps)
     # Convert to response format
     transactions = [
         schemas.SwapTransaction(
-            transaction_id=str(swap.transaction_id),
-            from_token=str(swap.from_token),
-            from_amount=float(swap.from_amount),  # type: ignore
-            to_token=str(swap.to_token),
-            to_amount=float(swap.to_amount),  # type: ignore
-            price=float(swap.price),  # type: ignore
-            timestamp=int(swap.timestamp),  # type: ignore
-            status=str(swap.status),
+            transaction_id=str(row.transaction_id),
+            side=str(row.side),
+            pair=str(row.pair),
+            from_token=str(row.from_token),
+            to_token=str(row.to_token),
+            from_amount=float(row.from_amount) if row.from_amount is not None else 0.0,
+            to_amount=float(row.to_amount) if row.to_amount is not None else 0.0,
+            price=float(row.price) if row.price is not None else 0.0,
+            timestamp=int(row.timestamp) if row.timestamp is not None else 0,
+            status=str(row.status),
         )
-        for swap in swaps
+        for row in swaps
     ]
 
     return schemas.SwapListResponse(
@@ -542,7 +546,7 @@ def _fetch_top_traders_data(
     query = f"""
         SELECT 
             wallet_address,
-            COALESCE(SUM(usd_value), 0) as total_volume,
+            COALESCE(SUM(value*ada_price), 0) as total_volume,
             COUNT(transaction_id) as total_trades
         FROM proddb.swap_transactions
         WHERE status = 'completed' and {where_clause} 
