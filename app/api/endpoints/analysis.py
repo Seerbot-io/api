@@ -201,7 +201,7 @@ def get_indicators(
 
 
 # todo: fix this to cache the data param make cache inefficient
-# @cache("in-1m", value_type=list[schemas.TokenMarketInfo])
+@cache("in-1m", value_type=list[schemas.TokenMarketInfo])
 def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
     time_now = (int(datetime.now().timestamp()) // 300 - 1) * 300
     time_24h_ago = time_now - 24 * 60 * 60
