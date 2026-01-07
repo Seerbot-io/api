@@ -226,6 +226,7 @@ async def unified_websocket(websocket: WebSocket):
                     await websocket.send_json(
                         {"error": "Missing required fields: action and channel"}
                     )
+                    await asyncio.sleep(15)
                     continue
                 if action == "subscribe":
                     # Max 5 subscriptions per client
@@ -236,6 +237,7 @@ async def unified_websocket(websocket: WebSocket):
                                 "channels": list(subscriptions.keys()),
                             }
                         )
+                        await asyncio.sleep(15)
                         continue
                     try:
                         # Parse channel
@@ -249,6 +251,7 @@ async def unified_websocket(websocket: WebSocket):
                                     "channel": channel,
                                 }
                             )
+                            await asyncio.sleep(15)
                             continue
                         # Create subscription if it doesn't exist
                         if channel not in subscriptions:
@@ -542,8 +545,6 @@ async def handle_notices(
     # Get last notice ID from state (tracks the last notice ID we've seen)
     last_notice_id = subscription.state.get("last_notice_id", after_id)
 
-    # Create database session
-    db = SessionLocal()
     try:
         # Get notices
         notice_responses = _get_notices(
@@ -551,7 +552,6 @@ async def handle_notices(
             limit=limit,
             order=order,
             after_id=last_notice_id,
-            db=db,
         )
         total = len(notice_responses)
 
@@ -578,8 +578,6 @@ async def handle_notices(
             {"error": "failed to get notices data", "channel": subscription.channel}
         )
         return None
-    finally:
-        db.close()
 
 
 websocket_schema = {

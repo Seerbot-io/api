@@ -41,9 +41,9 @@ def _get_notices(
     offset: Optional[int] = 0,
     order: str = "desc",
     after_id: Optional[int] = None,
-    db=SessionLocal(),
 ) -> List[NoticeResponse]:
     # Filter by type if provided
+    db=SessionLocal()
     query = db.query(Notice)
     if type:
         allowed_types = ["info", "account", "signal", "all"]
@@ -74,6 +74,7 @@ def _get_notices(
         )
         for notice in notices
     ]
+    db.close()
     return notice_responses
 
 

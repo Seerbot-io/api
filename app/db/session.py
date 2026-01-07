@@ -27,6 +27,7 @@ def get_db() -> Generator[Session, None, None]:
     try:
         yield db
     except Exception as e:
+        db.rollback()
         if isinstance(e, HTTPException):
             raise e
         else:

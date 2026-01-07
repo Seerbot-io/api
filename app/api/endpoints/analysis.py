@@ -55,7 +55,7 @@ def _get_token_id(token: str) -> str | None:
         tokens = db.query(Token.id, Token.symbol).all()
         for t in tokens:
             TOKEN_LIST[t.symbol] = t.id
-
+        db.close()
     return TOKEN_LIST.get(token, None)
 
 
@@ -284,6 +284,7 @@ def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
         """
         tokens = db.execute(text(query)).fetchall()
         data += [schemas.TokenMarketInfo.from_record(token) for token in tokens]
+    db.close()
     return data
 
 
@@ -600,7 +601,7 @@ def get_top_traders(
     return trader_list
 
 
-@cache("in-1m", key_prefix="chart_data_impl")
+@cache("in-5m", key_prefix="chart_data_impl")
 def get_chart_data(
     symbol: str,
     resolution: str,
@@ -1234,7 +1235,6 @@ def get_predict_validate(
     """
     url = "https://api.vistia.co/api/v2_2/ai-analysis/predict-validate?interval=3M&limit=100000"
     response = requests.get(url)
-    print(response, response.json())
     data = schemas.Validate(**response.json())
     return data
 
