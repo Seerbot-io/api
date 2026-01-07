@@ -413,7 +413,6 @@ async def handle_ohlc(
             from_time=last_timestamp + 300,
             count_back=1,
         )
-        print("result", result)
         if result and len(result) > 0:
             row = result[0]
             current_timestamp = int(row["timestamp"]) if row["timestamp"] else 0

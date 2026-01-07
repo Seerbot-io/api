@@ -177,7 +177,7 @@ def extract_swap_info(market_order_tx: str) -> dict:
             f"Failed to get executed tx: {response.status_code} {response.text}"
         )
     data = response.json()
-
+    print(data)
     if len(data.get("orders", [])) == 0:
         raise Exception(f"Order not found: {market_order_tx}")
     order = data.get("orders", [])[0]
