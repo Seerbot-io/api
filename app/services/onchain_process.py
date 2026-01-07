@@ -22,7 +22,7 @@ MINSWAP_V2_POOL_CONTRACT = "addr1z84q0denmyep98ph3tmzwsmw0j7zau9ljmsqx6a4rvaau66
 
 # Swap async queue worker config
 SWAP_RETRY_MAX_AGE_SECONDS = 120
-SWAP_RETRY_SLEEP_SECONDS = 5
+SWAP_RETRY_SLEEP_SECONDS = 15
 SWAP_WARN_THRESHOLD = 20
 swap_queue: asyncio.Queue[tuple[str, float]] = asyncio.Queue()
 swap_worker_task: asyncio.Task | None = None
@@ -115,7 +115,6 @@ def extract_swap_info_v0(
             order_executed_tx = get_executed_tx(
                 user, market_order_tx, token_in, token_out
             )
-        print(context.api.transaction(order_executed_tx))
         timestamp = context.api.transaction(order_executed_tx).block_time
         oe_utxos = context.api.transaction_utxos(order_executed_tx)
     except Exception as e:
@@ -177,13 +176,17 @@ def extract_swap_info(market_order_tx: str) -> dict:
             f"Failed to get executed tx: {response.status_code} {response.text}"
         )
     data = response.json()
-    print(data)
     if len(data.get("orders", [])) == 0:
         raise Exception(f"Order not found: {market_order_tx}")
-    order = data.get("orders", [])[0]
+    order = data.get("orders", [])
+    if len(order) == 0:
+        raise Exception(f"Order not found: {market_order_tx}")
+    order = order[0]
     detail = order.get("details", {})
     amount_in = float(detail.get("input_amount", 0))
     amount_out = float(detail.get("executed_amount", 0))
+    if amount_in == 0 or amount_out == 0:
+        raise Exception(f"Invalid amounts in order: {market_order_tx}")
     price = amount_out / amount_in
     fee = round(
         float(order.get("batcher_fee", 0)) + float(detail.get("trading_fee", 0)), 6
