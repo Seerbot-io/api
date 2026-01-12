@@ -9,6 +9,12 @@ from app.core.router_decorated import APIRouter
 from app.db.session import SessionLocal, get_db
 from app.models.notice import Notice
 from app.schemas.notice import NoticeListResponse, NoticeResponse
+from app.schemas.user import (
+    PortfolioHoldingsResponse,
+    PortfolioSummaryResponse,
+    ProfileResponse,
+    WalletBalanceResponse,
+)
 
 router = APIRouter()
 group_tags: List[str | Enum] = ["user"]
@@ -134,4 +140,125 @@ def get_notices(
         limit=limit,
         offset=offset,
         order=order,
+    )
+
+
+@router.get(
+    "/portfolio/balance",
+    tags=group_tags,
+    response_model=WalletBalanceResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_portfolio_balance(
+    wallet_address: str = Query(
+        ..., description="Wallet address of the user (required)"
+    ),
+) -> WalletBalanceResponse:
+    """
+    Get wallet balance for a user.
+
+    Query Parameters:
+    - wallet_address: Wallet address of the user (required)
+
+    Returns:
+    - Wallet balance with ADA and token balances
+    """
+    # TODO: Implement actual wallet balance retrieval
+    # This is a placeholder - replace with actual data source
+    return WalletBalanceResponse(
+        ada_balance=0.0,
+        tokens=[],
+    )
+
+
+@router.get(
+    "/profile",
+    tags=group_tags,
+    response_model=ProfileResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_user_profile(
+    wallet_address: str = Query(
+        ..., description="Wallet address of the user (required)"
+    ),
+) -> ProfileResponse:
+    """
+    Get user profile information.
+
+    Query Parameters:
+    - wallet_address: Wallet address of the user (required)
+
+    Returns:
+    - User profile information
+    """
+    # TODO: Implement actual profile retrieval
+    # This is a placeholder - replace with actual data source
+    return ProfileResponse(
+        wallet_address=wallet_address,
+        username=None,
+        avatar_url=None,
+    )
+
+
+@router.get(
+    "/portfolio/holdings",
+    tags=group_tags,
+    response_model=PortfolioHoldingsResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_portfolio_holdings(
+    wallet_address: str = Query(
+        ..., description="Wallet address of the user (required)"
+    ),
+    limit: int = Query(default=20, ge=1, le=100, description="Maximum number of holdings to return"),
+    offset: int = Query(default=0, ge=0, description="Number of holdings to skip for pagination"),
+) -> PortfolioHoldingsResponse:
+    """
+    Get portfolio holdings for a user.
+
+    Query Parameters:
+    - wallet_address: Wallet address of the user (required)
+    - limit: Maximum number of holdings to return (default: 20, max: 100)
+    - offset: Number of holdings to skip for pagination (default: 0)
+
+    Returns:
+    - List of portfolio holdings with pagination
+    """
+    # TODO: Implement actual portfolio holdings retrieval
+    # This is a placeholder - replace with actual data source
+    return PortfolioHoldingsResponse(
+        holdings=[],
+        total=0,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/portfolio/summary",
+    tags=group_tags,
+    response_model=PortfolioSummaryResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_portfolio_summary(
+    wallet_address: str = Query(
+        ..., description="Wallet address of the user (required)"
+    ),
+) -> PortfolioSummaryResponse:
+    """
+    Get portfolio summary statistics for a user.
+
+    Query Parameters:
+    - wallet_address: Wallet address of the user (required)
+
+    Returns:
+    - Portfolio summary with total value, 24h change, etc.
+    """
+    # TODO: Implement actual portfolio summary retrieval
+    # This is a placeholder - replace with actual data source
+    return PortfolioSummaryResponse(
+        total_value=0.0,
+        total_value_ada=0.0,
+        change_24h=0.0,
+        change_24h_percent=0.0,
     )
