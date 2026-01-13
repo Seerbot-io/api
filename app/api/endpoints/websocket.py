@@ -1,11 +1,11 @@
 import asyncio
+from datetime import datetime
 import json
 from typing import Any, Dict, Optional, Tuple
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 
-from app.api.endpoints.analysis import _get_token_info_data
-from app.api.endpoints.charting import SUPPORTED_RESOLUTIONS, get_chart_data
+from app.api.endpoints.analysis import TIMEFRAME_DURATION_MAP, _get_token_info_data, SUPPORTED_RESOLUTIONS, get_chart_data
 from app.api.endpoints.user import _get_notices
 from app.core.router_decorated import APIRouter
 from app.schemas.notice import NoticeListResponse
@@ -379,6 +379,7 @@ async def handle_ohlc(
     """
     symbol = subscription.params.get("symbol")
     resolution = subscription.params.get("resolution")
+    ts = TIMEFRAME_DURATION_MAP.get(resolution, 300)
 
     if not symbol or not resolution:
         await websocket.send_json(
@@ -406,13 +407,22 @@ async def handle_ohlc(
     last_timestamp = subscription.state.get("last_timestamp", 0)
 
     try:
+        # print("last_timestamp:", last_timestamp + ts, last_timestamp + ts*2)
         # Get latest bar after last_timestamp
-        result = get_chart_data(  # have cache
-            symbol=symbol,
-            resolution=resolution,
-            from_time=last_timestamp + 300,
-            count_back=1,
-        )
+        if last_timestamp == 0:
+            result = get_chart_data(  # have cache
+                symbol=symbol,
+                resolution=resolution,
+                from_time=datetime.now().timestamp() - ts*10,
+                count_back=1,
+            )
+        else:
+            result = get_chart_data(  # have cache
+                symbol=symbol,
+                resolution=resolution,
+                from_time=last_timestamp + ts,
+                to_time=last_timestamp + ts*2,
+            )
         if result and len(result) > 0:
             row = result[0]
             current_timestamp = int(row["timestamp"]) if row["timestamp"] else 0

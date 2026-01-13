@@ -29,10 +29,10 @@ class ProfileResponse(CustomBaseModel):
     chain: str = "cardano"
 
 
-class VaultHolding(CustomBaseModel):
-    """Vault holding information"""
+class VaultEarning(CustomBaseModel):
+    """Vault earning information"""
 
-    vault_id: int = 0
+    vault_id: str = ""  # Changed from int to str (UUID)
     vault_name: str = ""
     vault_address: str = ""
     total_deposit: float = 0.0
@@ -40,23 +40,13 @@ class VaultHolding(CustomBaseModel):
     roi: float = 0.0  # Return on Investment percentage
 
 
-class VaultHoldingsResponse(CustomBaseModel):
-    """Response model for vault holdings"""
+class VaultEarningsResponse(CustomBaseModel):
+    """Response model for vault earnings"""
 
-    holdings: List[VaultHolding] = []
+    earnings: List[VaultEarning] = Field(default_factory=list)
     total: int = 0
     page: int = 1
     limit: int = 20
-
-
-class VaultSummaryResponse(CustomBaseModel):
-    """Response model for vault summary"""
-
-    total_value_usd: float = 0.0
-    total_holdings: int = 0
-    total_apy: Optional[float] = None
-    total_return_24h: Optional[float] = None
-    total_return_percentage: Optional[float] = None
 
 
 class TokenInfo(CustomBaseModel):
@@ -101,7 +91,7 @@ class UserSwapListResponse(CustomBaseModel):
 class Vault(CustomBaseModel):
     """Vault information"""
 
-    id: int = 0
+    id: str = ""  # Changed from int to str (UUID)
     name: str = ""
     algorithm: str = ""
     address: str = ""
@@ -134,7 +124,7 @@ class VaultState(CustomBaseModel):
 class VaultStateResponse(CustomBaseModel):
     """Response model for vault state history"""
 
-    vault_id: int = 0
+    vault_id: str = ""  # Changed from int to str (UUID)
     vault_name: str = ""
     states: List[VaultState] = Field(default_factory=list)
     total: int = 0
@@ -143,8 +133,8 @@ class VaultStateResponse(CustomBaseModel):
 class VaultTransaction(CustomBaseModel):
     """Vault transaction entry"""
 
-    id: int = 0
-    vault_id: int = 0
+    id: str = ""  # Changed from int to str (UUID)
+    vault_id: str = ""  # Changed from int to str (UUID)
     vault_name: Optional[str] = None
     wallet_address: str = ""
     action: str = ""  # 'deposit', 'withdrawal', 'claim', 'reinvest'
@@ -169,7 +159,7 @@ class VaultTransactionListResponse(CustomBaseModel):
 class UserEarning(CustomBaseModel):
     """User earnings for a vault"""
 
-    vault_id: int = 0
+    vault_id: str = ""  # Changed from int to str (UUID)
     vault_name: str = ""
     algorithm: str = ""
     vault_address: str = ""

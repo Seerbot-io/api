@@ -15,7 +15,6 @@ from app.api.endpoints import (
     ai_assistant,
     analysis,
     # auth,
-    charting,
     health,
     market,
     user,
@@ -120,7 +119,6 @@ app.include_router(health.router)
 
 app.include_router(ai_assistant.router, prefix="/ai-assistant")
 app.include_router(analysis.router, prefix="/analysis")
-app.include_router(charting.router, prefix="/charting")
 app.include_router(web_content.router, prefix="/content")
 app.include_router(websocket.router)
 app.include_router(market.router, prefix="/market")

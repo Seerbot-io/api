@@ -600,7 +600,7 @@ def get_top_traders(
     return trader_list
 
 
-@cache("in-5m", key_prefix="chart_data_impl")
+@cache("in-1m", key_prefix="chart_data_impl")
 def get_chart_data(
     symbol: str,
     resolution: str,
@@ -672,11 +672,11 @@ def get_chart_data(
         if from_time is not None and to_time is not None:
             # Make to_time exclusive for TradingView: use < instead of <=
             where_conditions.append(f"open_time >= {from_time}")
-            where_conditions.append(f"open_time < {to_time}")
+            where_conditions.append(f"open_time <= {to_time}")
         elif from_time is not None:
             where_conditions.append(f"open_time >= {from_time}")
         elif to_time is not None:
-            where_conditions.append(f"open_time < {to_time}")
+            where_conditions.append(f"open_time <= {to_time}")
 
         where_clause = " AND ".join(where_conditions)
 

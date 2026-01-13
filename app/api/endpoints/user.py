@@ -12,8 +12,8 @@ from app.models.notice import Notice
 from app.models.tokens import Token
 from app.schemas.notice import NoticeListResponse, NoticeResponse
 from app.schemas.user import (
-    VaultHolding,
-    VaultHoldingsResponse,
+    VaultEarning,
+    VaultEarningsResponse,
     SwapToken,
     TokenInfo,
     UserSwap,
@@ -151,34 +151,35 @@ def get_notices(
 
 
 @router.get(
-    "/vaults/holdings",
+    "/vaults/earnings",
     tags=group_tags,
-    response_model=VaultHoldingsResponse,
+    response_model=VaultEarningsResponse,
     status_code=status.HTTP_200_OK,
 )
-def get_vault_holdings(
+def get_vault_earnings(
     wallet_address: str = Query(
         "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm",
         # ...,
          description="Wallet address of the user (required)"
     ),
-    limit: int = Query(default=20, ge=1, le=100, description="Maximum number of holdings to return"),
-    offset: int = Query(default=0, ge=0, description="Number of holdings to skip for pagination"),
+    limit: int = Query(default=20, ge=1, le=100, description="Maximum number of earnings to return"),
+    offset: int = Query(default=0, ge=0, description="Number of earnings to skip for pagination"),
     db: Session = Depends(get_db),
-) -> VaultHoldingsResponse:
+) -> VaultEarningsResponse:
     """
-    Get vault holdings for a user (from vault positions).
+    Get vault earnings for a user (from vault positions).
 
     Query Parameters:
     - wallet_address: Wallet address of the user (required)
-    - limit: Maximum number of holdings to return (default: 20, max: 100)
-    - offset: Number of holdings to skip for pagination (default: 0)
+    - limit: Maximum number of earnings to return (default: 20, max: 100)
+    - offset: Number of earnings to skip for pagination (default: 0)
 
     Returns:
-    - List of portfolio holdings from vaults with pagination
+    - List of vault earnings from vaults with pagination
 
     *Sample wallet address:* addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm
     """
+    wallet_address = wallet_address.strip().lower()
     # Get total count
     count_sql = text(
         f"""
@@ -207,12 +208,12 @@ def get_vault_holdings(
         LIMIT {limit} OFFSET {offset}
         """
     )
-    earnings = db.execute(data_sql).fetchall()
+    earnings_data = db.execute(data_sql).fetchall()
 
-    # Convert to holdings format
-    holdings = []
+    # Convert to earnings format
+    earnings = []
     
-    for earning in earnings:
+    for earning in earnings_data:
         # Calculate ROI (Return on Investment)
         # ROI = ((current_value + total_withdrawal - total_deposit) / total_deposit) * 100
         total_deposit = float(earning.total_deposit)
@@ -229,10 +230,10 @@ def get_vault_holdings(
         else:
             roi = 0.0
 
-        holdings.append(
-            VaultHolding(
+        earnings.append(
+            VaultEarning(
                 vault_id=int(earning.vault_id),
-                vault_name= earning.vault_name,
+                vault_name=str(earning.vault_name) if earning.vault_name else "",
                 vault_address=str(earning.vault_address) if earning.vault_address else "",
                 total_deposit=round(total_deposit, 2),
                 current_value=round(current_value, 2),
@@ -240,8 +241,8 @@ def get_vault_holdings(
             )
         )
 
-    return VaultHoldingsResponse(
-        holdings=holdings,
+    return VaultEarningsResponse(
+        earnings=earnings,
         total=total,
         page=(offset // limit) + 1,
         limit=limit,
@@ -274,6 +275,7 @@ def get_user_swaps(
     Returns:
     - List of swap transactions with token information
     """
+    wallet_address = wallet_address.strip().lower()
     # Validate and adjust pagination parameters
     page = max(1, page)
     limit = max(1, min(100, limit))
@@ -392,6 +394,7 @@ def get_vault_transactions(
     Returns:
     - List of vault transactions (deposits, withdrawals, claims, reinvests)
     """
+    wallet_address = wallet_address.strip().lower()
     # Validate and adjust pagination parameters
     page = max(1, page)
     limit = max(1, min(100, limit))
