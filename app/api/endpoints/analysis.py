@@ -379,7 +379,7 @@ def get_swaps(
     limit: int = 20,
     from_time: Optional[int] = None,
     to_time: Optional[int] = None,
-    user_id: Optional[str] = None,  # deprecated, use wallet_address instead
+    wallet_address: Optional[str] = None,  # deprecated, use wallet_address instead
     db: Session = Depends(get_db),
 ) -> schemas.SwapListResponse:
     """Retrieves all swap transactions with pagination and filters.
@@ -389,7 +389,7 @@ def get_swaps(
     - pair: Filter by trading pair in format BASE_QUOTE (e.g., USDM_ADA) (optional)
     - from_time: Start timestamp filter in seconds (optional)
     - to_time: End timestamp filter in seconds (optional)
-    - user_id: Filter by wallet address (optional)
+    - wallet_address: Filter by wallet address (optional)
 
     OUTPUT:
     - transactions: Array of transaction objects
@@ -404,7 +404,6 @@ def get_swaps(
 
     # Build dynamic SQL conditions
     where_clauses = ["status = 'completed'"]
-    params: dict[str, object] = {}
     quote_token: Optional[str] = "ADA"
 
     # Apply pair filter if provided
@@ -424,18 +423,13 @@ def get_swaps(
         where_clauses.append(
             f"from_token in {token_list_str} AND to_token in {token_list_str}"
         )
-        params["base_token"] = base_token
-        params["quote_token"] = quote_token
     if from_time:
-        where_clauses.append("timestamp >= :from_time")
-        params["from_time"] = from_time
+        where_clauses.append(f"timestamp >= {from_time}")
     if to_time:
-        where_clauses.append("timestamp <= :to_time")
-        params["to_time"] = to_time
-    if user_id:
-        # Filter by user_id (wallet address) when user_id is provided
-        where_clauses.append("user_id = :user_id")
-        params["user_id"] = user_id
+        where_clauses.append(f"timestamp <= {to_time}")
+    if wallet_address:
+        # Filter by wallet_address when wallet_address is provided
+        where_clauses.append(f"wallet_address = '{wallet_address}'")
 
     where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
     limit_offset_sql = ""
@@ -468,7 +462,7 @@ def get_swaps(
         {limit_offset_sql}
         """
     )
-    swaps = db.execute(data_sql, params).fetchall()
+    swaps = db.execute(data_sql).fetchall()
 
     total = len(swaps)
     # Convert to response format
@@ -764,142 +758,6 @@ def format_tradingview_data(result: list) -> dict:
         "c": closes,
         "v": volumes,
     }
-
-
-@router.get("/charting/config", tags=group_tags)
-@cache("in-1h")
-def get_config():
-    """TradingView charting library configuration endpoint."""
-    return {
-        "supports_search": True,
-        "supports_time": True,
-        "supports_timescale_marks": False,
-        "supports_group_request": False,
-        "supported_resolutions": SUPPORTED_RESOLUTIONS,
-        "supports_marks": False,
-        "supports_volume": True,
-    }
-
-
-@router.get("/charting/pairs", tags=group_tags)
-@cache("in-1h")
-def search_pairs(
-    query: Optional[str] = None,
-    exchange: Optional[str] = None,
-    symbol_type: Optional[str] = None,
-    limit: Optional[int] = 50,
-    db: Session = Depends(get_db),
-):
-    """TradingView searchSymbols endpoint.
-    - query: Search query string (optional)
-    - exchange: Exchange filter (optional, not used currently)
-    - symbol_type: Symbol type filter (optional, not used currently)
-    - limit: Maximum number of results (default: 50, max: 100)
-    """
-    # Build query
-    query_obj = db.query(Pool)
-
-    # Apply search filter if provided
-    if query and query.strip():
-        query_obj = query_obj.filter(Pool.pair.ilike(f"%{query.strip()}%"))
-
-    if limit:
-        limit = max(1, min(100, limit))  # Limit between 1 and 100
-        query_obj = query_obj.limit(limit)
-    try:
-        results = query_obj.all()
-        # Format results for TradingView SearchSymbolResultItem format
-        symbols = []
-        for row in results:
-            pair = str(row.pair) if row.pair is not None else ""
-            if pair:
-                pair_clean = pair.strip().replace("_", "/").upper()
-                symbols.append(
-                    {
-                        "pair": pair_clean,
-                        "description": f"{pair_clean} Trading Pair",
-                        "exchange": "",
-                        "ticker": pair_clean,
-                        "type": "crypto",
-                    }
-                )
-
-        return symbols
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
-
-
-@router.get("/charting/pairs/{pair}", tags=group_tags)
-@cache("in-1h")
-def resolve_pair(pair: str, db: Session = Depends(get_db)):
-    """TradingView resolveSymbol endpoint.
-
-    - pair: Trading pair symbol (e.g., 'USDM_ADA')
-    """
-    # Normalize symbol format
-    pair_clean = pair.strip().replace("_", "/")
-    pool = db.query(Pool).filter(Pool.pair == pair_clean).first()
-    if not pool:
-        raise HTTPException(status_code=404, detail="Pool not found")
-
-    return {
-        "name": pair_clean,
-        "ticker": pair_clean,
-        "description": f"{pair_clean} Trading Pair",
-        "type": "crypto",
-        "session": "24x7",
-        "timezone": "Etc/UTC",
-        "exchange": "",
-        "listed_exchange": "",
-        "has_intraday": True,
-        "has_weekly_and_monthly": False,
-        "supported_resolutions": SUPPORTED_RESOLUTIONS,
-        "pricescale": 100,
-        "data_status": "streaming",
-        "minmov": 1,
-        "volume_precision": 2,
-        "has_daily": True,
-        "has_no_volume": False,
-    }
-
-
-@router.get("/charting/history/{pair}", tags=group_tags)
-@cache("in-5m")
-def get_bars(
-    pair: str,
-    resolution: str,
-    from_: int | None = None,
-    to: int | None = None,
-    count_back: Optional[int] = None,
-):
-    """TradingView getBars endpoint (historical data).
-
-    - pair: Trading pair symbol (e.g., 'USDM_ADA')
-    - resolution: Chart resolution ('5m', '30m', '1h', '4h', '1d')
-    - from_: Start timestamp in seconds
-    - to: End timestamp in seconds (exclusive)
-    - count_back: Required number of bars (optional, TradingView uses this)
-    """
-    tf = TIMEFRAME_DURATION_MAP[resolution]
-    if to is None:
-        to = int(datetime.now().timestamp()) // tf * tf
-    if from_ is None:
-        n_rows = count_back + 1 if count_back is not None else 20
-        from_ = to - n_rows * tf
-    try:
-        result = get_chart_data(
-            symbol=pair,
-            resolution=resolution,
-            from_time=from_,
-            to_time=to,
-            count_back=count_back,
-        )
-
-        return format_tradingview_data(result)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 def generate_subscriber_id(symbol: str, resolution: str) -> str:

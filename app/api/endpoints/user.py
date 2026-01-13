@@ -8,13 +8,28 @@ from sqlalchemy.orm import Session
 from app.core.router_decorated import APIRouter
 from app.db.session import SessionLocal, get_db
 from app.models.notice import Notice
+from app.models.tokens import Token
 from app.schemas.notice import NoticeListResponse, NoticeResponse
 from app.schemas.user import (
+    PortfolioHolding,
     PortfolioHoldingsResponse,
     PortfolioSummaryResponse,
     ProfileResponse,
+    SwapToken,
+    TokenInfo,
+    UserEarning,
+    UserEarningsResponse,
+    UserSwap,
+    UserSwapListResponse,
+    Vault,
+    VaultListResponse,
+    VaultLog,
+    VaultLogListResponse,
+    VaultState,
+    VaultStateResponse,
     WalletBalanceResponse,
 )
+from sqlalchemy import text
 
 router = APIRouter()
 group_tags: List[str | Enum] = ["user"]
@@ -132,7 +147,7 @@ def get_notices(
     - List of notices ordered by created_at DESC
     - Total count of matching notices
     """
-    notice_responses = _get_notices(type, limit, offset, order, after_id, db)
+    notice_responses = _get_notices(type, limit, offset, order, after_id)
     total = len(notice_responses)
     return NoticeListResponse(
         notices=notice_responses,
@@ -144,63 +159,6 @@ def get_notices(
 
 
 @router.get(
-    "/portfolio/balance",
-    tags=group_tags,
-    response_model=WalletBalanceResponse,
-    status_code=status.HTTP_200_OK,
-)
-def get_portfolio_balance(
-    wallet_address: str = Query(
-        ..., description="Wallet address of the user (required)"
-    ),
-) -> WalletBalanceResponse:
-    """
-    Get wallet balance for a user.
-
-    Query Parameters:
-    - wallet_address: Wallet address of the user (required)
-
-    Returns:
-    - Wallet balance with ADA and token balances
-    """
-    # TODO: Implement actual wallet balance retrieval
-    # This is a placeholder - replace with actual data source
-    return WalletBalanceResponse(
-        ada_balance=0.0,
-        tokens=[],
-    )
-
-
-@router.get(
-    "/profile",
-    tags=group_tags,
-    response_model=ProfileResponse,
-    status_code=status.HTTP_200_OK,
-)
-def get_user_profile(
-    wallet_address: str = Query(
-        ..., description="Wallet address of the user (required)"
-    ),
-) -> ProfileResponse:
-    """
-    Get user profile information.
-
-    Query Parameters:
-    - wallet_address: Wallet address of the user (required)
-
-    Returns:
-    - User profile information
-    """
-    # TODO: Implement actual profile retrieval
-    # This is a placeholder - replace with actual data source
-    return ProfileResponse(
-        wallet_address=wallet_address,
-        username=None,
-        avatar_url=None,
-    )
-
-
-@router.get(
     "/portfolio/holdings",
     tags=group_tags,
     response_model=PortfolioHoldingsResponse,
@@ -208,13 +166,16 @@ def get_user_profile(
 )
 def get_portfolio_holdings(
     wallet_address: str = Query(
-        ..., description="Wallet address of the user (required)"
+        "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm",
+        # ...,
+         description="Wallet address of the user (required)"
     ),
     limit: int = Query(default=20, ge=1, le=100, description="Maximum number of holdings to return"),
     offset: int = Query(default=0, ge=0, description="Number of holdings to skip for pagination"),
+    db: Session = Depends(get_db),
 ) -> PortfolioHoldingsResponse:
     """
-    Get portfolio holdings for a user.
+    Get portfolio holdings for a user (from vault positions).
 
     Query Parameters:
     - wallet_address: Wallet address of the user (required)
@@ -222,43 +183,196 @@ def get_portfolio_holdings(
     - offset: Number of holdings to skip for pagination (default: 0)
 
     Returns:
-    - List of portfolio holdings with pagination
+    - List of portfolio holdings from vaults with pagination
+
+    *Sample wallet address:* addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm
     """
-    # TODO: Implement actual portfolio holdings retrieval
-    # This is a placeholder - replace with actual data source
+    # Get total count
+    count_sql = text(
+        f"""
+        SELECT COUNT(*) as total
+        FROM proddb.user_earnings
+        WHERE wallet_address = '{wallet_address}' AND current_value > 0
+        """
+    )
+    total_result = db.execute(count_sql).fetchone()
+    total = int(total_result.total) if total_result else 0
+
+    # Fetch user earnings with vault info
+    data_sql = text(
+        f"""
+        SELECT 
+            ue.vault_id,
+            v.name as vault_name,
+            v.algorithm,
+            v.token_id,
+            ue.total_deposit,
+            ue.total_withdrawal,
+            ue.current_value,
+            ue.last_updated_timestamp
+        FROM proddb.user_earnings ue
+        JOIN proddb.vault v ON ue.vault_id = v.id
+        WHERE ue.wallet_address = '{wallet_address}' AND ue.current_value > 0
+        ORDER BY ue.current_value DESC
+        LIMIT {limit} OFFSET {offset}
+        """
+    )
+    earnings = db.execute(data_sql).fetchall()
+
+    # Get token information
+    token_ids = set()
+    for earning in earnings:
+        token_ids.add(str(earning.token_id))
+
+    token_info_map = {}
+    if token_ids:
+        tokens = db.query(Token).filter(Token.id.in_(token_ids)).all()
+        for token in tokens:
+            token_info_map[token.id] = {
+                "symbol": token.symbol or "",
+                "name": token.name or "",
+                "logo_url": token.logo_url,
+            }
+
+    # Convert to holdings format
+    holdings = []
+    for earning in earnings:
+        token_info = token_info_map.get(str(earning.token_id), {})
+        token_symbol = token_info.get("symbol", "")
+        
+        # Calculate earnings percentage
+        net_deposit = float(earning.total_deposit) - float(earning.total_withdrawal)
+        earnings_amount = float(earning.current_value) + float(earning.total_withdrawal) - float(earning.total_deposit)
+        return_percentage = (earnings_amount / net_deposit * 100) if net_deposit > 0 else 0.0
+
+        holdings.append(
+            PortfolioHolding(
+                token_pair=f"{token_symbol}/VAULT",
+                base_token=token_symbol,
+                quote_token=None,
+                amount=float(earning.current_value),
+                value_usd=float(earning.current_value),  # TODO: Convert to USD if needed
+                return_percentage=round(return_percentage, 2),
+                logo_url=token_info.get("logo_url"),
+            )
+        )
+
     return PortfolioHoldingsResponse(
-        holdings=[],
-        total=0,
+        holdings=holdings,
+        total=total,
+        page=(offset // limit) + 1,
         limit=limit,
-        offset=offset,
     )
 
-
 @router.get(
-    "/portfolio/summary",
+    "/swaps",
     tags=group_tags,
-    response_model=PortfolioSummaryResponse,
+    response_model=UserSwapListResponse,
     status_code=status.HTTP_200_OK,
 )
-def get_portfolio_summary(
+def get_user_swaps(
     wallet_address: str = Query(
         ..., description="Wallet address of the user (required)"
     ),
-) -> PortfolioSummaryResponse:
+    page: int = Query(default=1, ge=1, description="Page number (default: 1)"),
+    limit: int = Query(
+        default=20, ge=1, le=100, description="Number of records per page (default: 20, max: 100)"
+    ),
+    db: Session = Depends(get_db),
+) -> UserSwapListResponse:
     """
-    Get portfolio summary statistics for a user.
+    Get user swap transactions.
 
     Query Parameters:
     - wallet_address: Wallet address of the user (required)
+    - page: Page number (default: 1)
+    - limit: Number of records per page (default: 20, max: 100)
 
     Returns:
-    - Portfolio summary with total value, 24h change, etc.
+    - List of swap transactions with token information
     """
-    # TODO: Implement actual portfolio summary retrieval
-    # This is a placeholder - replace with actual data source
-    return PortfolioSummaryResponse(
-        total_value=0.0,
-        total_value_ada=0.0,
-        change_24h=0.0,
-        change_24h_percent=0.0,
+    # Validate and adjust pagination parameters
+    page = max(1, page)
+    limit = max(1, min(100, limit))
+    offset = (page - 1) * limit
+
+    # Get total count
+    count_sql = text(
+        f"""
+        SELECT COUNT(*) as total
+        FROM proddb.swap_transactions
+        WHERE status = 'completed' AND wallet_address = '{wallet_address}'
+        """
     )
+    total_result = db.execute(count_sql).fetchone()
+    total = int(total_result.total) if total_result else 0
+
+    # Fetch paginated swaps
+    data_sql = text(
+        f"""
+        SELECT 
+            transaction_id,
+            from_token,
+            to_token,
+            from_amount,
+            to_amount,
+            timestamp
+        FROM proddb.swap_transactions
+        WHERE status = 'completed' AND wallet_address = '{wallet_address}'
+        ORDER BY timestamp DESC
+        LIMIT {limit} OFFSET {offset}
+        """
+    )
+    swaps = db.execute(data_sql).fetchall()
+
+    # Get unique token symbols
+    token_symbols = set()
+    for swap in swaps:
+        token_symbols.add(str(swap.from_token))
+        token_symbols.add(str(swap.to_token))
+
+    # Fetch token information
+    token_info_map = {}
+    if token_symbols:
+        tokens = db.query(Token).filter(Token.symbol.in_(token_symbols)).all()
+        for token in tokens:
+            token_info_map[token.symbol] = TokenInfo(
+                symbol=token.symbol or "",
+                name=token.name or "",
+                decimals=token.decimals or 0,
+                address=token.id or "",
+                logo_url=token.logo_url,
+            )
+
+    # Convert to response format
+    swap_data = []
+    for swap in swaps:
+        from_token_symbol = str(swap.from_token)
+        to_token_symbol = str(swap.to_token)
+
+        # Get token info or create default
+        from_token_info = token_info_map.get(
+            from_token_symbol,
+            TokenInfo(symbol=from_token_symbol, name="", decimals=0, address=""),
+        )
+        to_token_info = token_info_map.get(
+            to_token_symbol,
+            TokenInfo(symbol=to_token_symbol, name="", decimals=0, address=""),
+        )
+
+        swap_data.append(
+            UserSwap(
+                fromToken=SwapToken(
+                    tokenInfo=from_token_info,
+                    amount=str(swap.from_amount) if swap.from_amount is not None else "0",
+                ),
+                toToken=SwapToken(
+                    tokenInfo=to_token_info,
+                    amount=str(swap.to_amount) if swap.to_amount is not None else "0",
+                ),
+                txn=str(swap.transaction_id),
+                timestamp=int(swap.timestamp) if swap.timestamp is not None else 0,
+            )
+        )
+
+    return UserSwapListResponse(data=swap_data, total=total, page=page)

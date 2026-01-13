@@ -44,7 +44,7 @@ def get_daily_market_data(
         symbol = symbol[:-3] + "/ADA"
 
     query = text(
-        f"SELECT * FROM {tables['f1d']} WHERE symbol = :symbol ORDER BY open_time DESC LIMIT :limit"
+        f"SELECT * FROM {tables['f1d']} WHERE symbol = '{symbol}' ORDER BY open_time DESC LIMIT {limit}"
     )
-    rows = db.execute(query, {"symbol": symbol, "limit": limit}).mappings().all()
+    rows = db.execute(query).mappings().all()
     return [{"index": i, **row} for i, row in enumerate(rows)]
