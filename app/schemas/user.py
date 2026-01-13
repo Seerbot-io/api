@@ -32,14 +32,12 @@ class ProfileResponse(CustomBaseModel):
 class VaultHolding(CustomBaseModel):
     """Vault holding information"""
 
-    token_pair: str = ""
-    deposit_token: str = ""  # Token deposited into vault
-    base_token: str = ""  # Deprecated, use deposit_token
-    amount: Optional[float] = None  # For single token holdings
-    value_usd: float = 0.0
-    apy: Optional[float] = None
-    return_percentage: Optional[float] = None
-    logo_url: Optional[str] = None  # For single token holdings
+    vault_id: int = 0
+    vault_name: str = ""
+    vault_address: str = ""
+    total_deposit: float = 0.0
+    current_value: float = 0.0
+    roi: float = 0.0  # Return on Investment percentage
 
 
 class VaultHoldingsResponse(CustomBaseModel):

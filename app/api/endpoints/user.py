@@ -196,13 +196,10 @@ def get_vault_holdings(
         SELECT 
             ue.vault_id,
             v.name as vault_name,
-            v.algorithm,
-            v.token_id,
-            v.run_time,
+            v.address as vault_address,
             ue.total_deposit,
             ue.total_withdrawal,
-            ue.current_value,
-            ue.last_updated_timestamp
+            ue.current_value
         FROM proddb.user_earnings ue
         JOIN proddb.vault v ON ue.vault_id = v.id
         WHERE ue.wallet_address = '{wallet_address}' AND ue.current_value > 0
@@ -212,53 +209,34 @@ def get_vault_holdings(
     )
     earnings = db.execute(data_sql).fetchall()
 
-    # Get token information
-    token_ids = set()
-    for earning in earnings:
-        token_ids.add(str(earning.token_id))
-
-    token_info_map = {}
-    if token_ids:
-        tokens = db.query(Token).filter(Token.id.in_(token_ids)).all()
-        for token in tokens:
-            token_info_map[token.id] = {
-                "symbol": token.symbol or "",
-                "name": token.name or "",
-                "logo_url": token.logo_url,
-            }
-
     # Convert to holdings format
     holdings = []
-    current_timestamp = int(time.time())
     
     for earning in earnings:
-        token_info = token_info_map.get(str(earning.token_id), {})
-        token_symbol = token_info.get("symbol", "")
+        # Calculate ROI (Return on Investment)
+        # ROI = ((current_value + total_withdrawal - total_deposit) / total_deposit) * 100
+        total_deposit = float(earning.total_deposit)
+        total_withdrawal = float(earning.total_withdrawal)
+        current_value = float(earning.current_value)
         
-        # Calculate earnings percentage
-        net_deposit = float(earning.total_deposit) - float(earning.total_withdrawal)
-        earnings_amount = float(earning.current_value) + float(earning.total_withdrawal) - float(earning.total_deposit)
-        return_percentage = (earnings_amount / net_deposit * 100) if net_deposit > 0 else 0.0
-
-        # Calculate APY if vault has been running for more than 7 days
-        apy = None
-        if earning.run_time:
-            days_running = (current_timestamp - int(earning.run_time)) / (24 * 3600)
-            if days_running > 7 and net_deposit > 0:
-                # APY = (earnings / net_deposit) * (365 / days_running) * 100
-                apy = (earnings_amount / net_deposit) * (365 / days_running) * 100
-                apy = round(apy, 2)
+        # Net investment = total_deposit - total_withdrawal
+        # net_deposit = total_deposit - total_withdrawal
+        
+        # ROI calculation: (current_value - net_deposit) / net_deposit * 100
+        # Or: (current_value + total_withdrawal - total_deposit) / total_deposit * 100
+        if total_deposit > 0:
+            roi = ((current_value + total_withdrawal - total_deposit) / total_deposit) * 100
+        else:
+            roi = 0.0
 
         holdings.append(
             VaultHolding(
-                token_pair=f"{token_symbol}/VAULT",
-                deposit_token=token_symbol,
-                base_token=token_symbol,  # Keep for backward compatibility
-                amount=float(earning.current_value),
-                value_usd=float(earning.current_value),  # TODO: Convert to USD if needed
-                return_percentage=round(return_percentage, 2),
-                apy=apy,
-                logo_url=token_info.get("logo_url"),
+                vault_id=int(earning.vault_id),
+                vault_name= earning.vault_name,
+                vault_address=str(earning.vault_address) if earning.vault_address else "",
+                total_deposit=round(total_deposit, 2),
+                current_value=round(current_value, 2),
+                roi=round(roi, 2),
             )
         )
 
