@@ -33,16 +33,12 @@ class PortfolioHolding(CustomBaseModel):
     """Portfolio holding information"""
 
     token_pair: str = ""
-    base_token: str = ""
-    quote_token: Optional[str] = None
-    base_amount: Optional[float] = None
-    quote_amount: Optional[float] = None
+    deposit_token: str = ""  # Token deposited into vault
+    base_token: str = ""  # Deprecated, use deposit_token
     amount: Optional[float] = None  # For single token holdings
     value_usd: float = 0.0
     apy: Optional[float] = None
     return_percentage: Optional[float] = None
-    base_logo_url: Optional[str] = None
-    quote_logo_url: Optional[str] = None
     logo_url: Optional[str] = None  # For single token holdings
 
 

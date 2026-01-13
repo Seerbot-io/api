@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, cast
@@ -13,21 +14,10 @@ from app.schemas.notice import NoticeListResponse, NoticeResponse
 from app.schemas.user import (
     PortfolioHolding,
     PortfolioHoldingsResponse,
-    PortfolioSummaryResponse,
-    ProfileResponse,
     SwapToken,
     TokenInfo,
-    UserEarning,
-    UserEarningsResponse,
     UserSwap,
     UserSwapListResponse,
-    Vault,
-    VaultListResponse,
-    VaultLog,
-    VaultLogListResponse,
-    VaultState,
-    VaultStateResponse,
-    WalletBalanceResponse,
 )
 from sqlalchemy import text
 
@@ -206,6 +196,7 @@ def get_portfolio_holdings(
             v.name as vault_name,
             v.algorithm,
             v.token_id,
+            v.run_time,
             ue.total_deposit,
             ue.total_withdrawal,
             ue.current_value,
@@ -236,6 +227,8 @@ def get_portfolio_holdings(
 
     # Convert to holdings format
     holdings = []
+    current_timestamp = int(time.time())
+    
     for earning in earnings:
         token_info = token_info_map.get(str(earning.token_id), {})
         token_symbol = token_info.get("symbol", "")
@@ -245,14 +238,24 @@ def get_portfolio_holdings(
         earnings_amount = float(earning.current_value) + float(earning.total_withdrawal) - float(earning.total_deposit)
         return_percentage = (earnings_amount / net_deposit * 100) if net_deposit > 0 else 0.0
 
+        # Calculate APY if vault has been running for more than 7 days
+        apy = None
+        if earning.run_time:
+            days_running = (current_timestamp - int(earning.run_time)) / (24 * 3600)
+            if days_running > 7 and net_deposit > 0:
+                # APY = (earnings / net_deposit) * (365 / days_running) * 100
+                apy = (earnings_amount / net_deposit) * (365 / days_running) * 100
+                apy = round(apy, 2)
+
         holdings.append(
             PortfolioHolding(
                 token_pair=f"{token_symbol}/VAULT",
-                base_token=token_symbol,
-                quote_token=None,
+                deposit_token=token_symbol,
+                base_token=token_symbol,  # Keep for backward compatibility
                 amount=float(earning.current_value),
                 value_usd=float(earning.current_value),  # TODO: Convert to USD if needed
                 return_percentage=round(return_percentage, 2),
+                apy=apy,
                 logo_url=token_info.get("logo_url"),
             )
         )
