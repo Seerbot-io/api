@@ -12,12 +12,14 @@ from app.models.notice import Notice
 from app.models.tokens import Token
 from app.schemas.notice import NoticeListResponse, NoticeResponse
 from app.schemas.user import (
-    PortfolioHolding,
-    PortfolioHoldingsResponse,
+    VaultHolding,
+    VaultHoldingsResponse,
     SwapToken,
     TokenInfo,
     UserSwap,
     UserSwapListResponse,
+    VaultTransaction,
+    VaultTransactionListResponse,
 )
 from sqlalchemy import text
 
@@ -149,12 +151,12 @@ def get_notices(
 
 
 @router.get(
-    "/portfolio/holdings",
+    "/vaults/holdings",
     tags=group_tags,
-    response_model=PortfolioHoldingsResponse,
+    response_model=VaultHoldingsResponse,
     status_code=status.HTTP_200_OK,
 )
-def get_portfolio_holdings(
+def get_vault_holdings(
     wallet_address: str = Query(
         "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm",
         # ...,
@@ -163,9 +165,9 @@ def get_portfolio_holdings(
     limit: int = Query(default=20, ge=1, le=100, description="Maximum number of holdings to return"),
     offset: int = Query(default=0, ge=0, description="Number of holdings to skip for pagination"),
     db: Session = Depends(get_db),
-) -> PortfolioHoldingsResponse:
+) -> VaultHoldingsResponse:
     """
-    Get portfolio holdings for a user (from vault positions).
+    Get vault holdings for a user (from vault positions).
 
     Query Parameters:
     - wallet_address: Wallet address of the user (required)
@@ -248,7 +250,7 @@ def get_portfolio_holdings(
                 apy = round(apy, 2)
 
         holdings.append(
-            PortfolioHolding(
+            VaultHolding(
                 token_pair=f"{token_symbol}/VAULT",
                 deposit_token=token_symbol,
                 base_token=token_symbol,  # Keep for backward compatibility
@@ -260,7 +262,7 @@ def get_portfolio_holdings(
             )
         )
 
-    return PortfolioHoldingsResponse(
+    return VaultHoldingsResponse(
         holdings=holdings,
         total=total,
         page=(offset // limit) + 1,
@@ -379,3 +381,117 @@ def get_user_swaps(
         )
 
     return UserSwapListResponse(data=swap_data, total=total, page=page)
+
+
+@router.get(
+    "/vaults/transactions",
+    tags=group_tags,
+    response_model=VaultTransactionListResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_vault_transactions(
+    wallet_address: str = Query(
+        ..., description="Wallet address of the user (required)"
+    ),
+    vault_id: Optional[int] = Query(
+        default=None, description="Filter by vault ID (optional)"
+    ),
+    page: int = Query(default=1, ge=1, description="Page number (default: 1)"),
+    limit: int = Query(
+        default=20, ge=1, le=100, description="Number of records per page (default: 20, max: 100)"
+    ),
+    db: Session = Depends(get_db),
+) -> VaultTransactionListResponse:
+    """
+    Get user vault transaction history.
+
+    Query Parameters:
+    - wallet_address: Wallet address of the user (required)
+    - vault_id: Filter by vault ID (optional)
+    - page: Page number (default: 1)
+    - limit: Number of records per page (default: 20, max: 100)
+
+    Returns:
+    - List of vault transactions (deposits, withdrawals, claims, reinvests)
+    """
+    # Validate and adjust pagination parameters
+    page = max(1, page)
+    limit = max(1, min(100, limit))
+    offset = (page - 1) * limit
+
+    # Build WHERE clause
+    where_clause = f"vl.wallet_address = '{wallet_address}'"
+    if vault_id is not None:
+        where_clause += f" AND vl.vault_id = {vault_id}"
+
+    # Get total count
+    count_sql = text(
+        f"""
+        SELECT COUNT(*) as total
+        FROM proddb.vault_logs vl
+        WHERE {where_clause}
+        """
+    )
+    total_result = db.execute(count_sql).fetchone()
+    total = int(total_result.total) if total_result else 0
+
+    # Fetch paginated vault logs
+    data_sql = text(
+        f"""
+        SELECT 
+            vl.id,
+            vl.vault_id,
+            v.name as vault_name,
+            vl.wallet_address,
+            vl.action,
+            vl.amount,
+            vl.token_id,
+            vl.txn,
+            vl.timestamp,
+            vl.status,
+            vl.fee
+        FROM proddb.vault_logs vl
+        LEFT JOIN proddb.vault v ON vl.vault_id = v.id
+        WHERE {where_clause}
+        ORDER BY vl.timestamp DESC
+        LIMIT {limit} OFFSET {offset}
+        """
+    )
+    transactions = db.execute(data_sql).fetchall()
+
+    # Get unique token IDs
+    token_ids = set()
+    for transaction in transactions:
+        if transaction.token_id:
+            token_ids.add(str(transaction.token_id))
+
+    # Fetch token information
+    token_info_map = {}
+    if token_ids:
+        tokens = db.query(Token).filter(Token.id.in_(token_ids)).all()
+        for token in tokens:
+            token_info_map[token.id] = token.symbol or ""
+
+    # Convert to response format
+    transaction_data = []
+    for transaction in transactions:
+        token_symbol = token_info_map.get(str(transaction.token_id), None) if transaction.token_id else None
+
+        transaction_data.append(
+            VaultTransaction(
+                id=int(transaction.id),
+                vault_id=int(transaction.vault_id),
+                vault_name=transaction.vault_name,
+                wallet_address=str(transaction.wallet_address),
+                action=str(transaction.action),
+                amount=float(transaction.amount) if transaction.amount is not None else 0.0,
+                token_id=str(transaction.token_id) if transaction.token_id else "",
+                token_symbol=token_symbol,
+                txn=str(transaction.txn) if transaction.txn else "",
+                timestamp=int(transaction.timestamp) if transaction.timestamp is not None else 0,
+                status=str(transaction.status) if transaction.status else "pending",
+                fee=float(transaction.fee) if transaction.fee is not None else 0.0,
+            )
+        )
+
+    return VaultTransactionListResponse(transactions=transaction_data, total=total, page=page, limit=limit)

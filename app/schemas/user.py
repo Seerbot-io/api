@@ -29,8 +29,8 @@ class ProfileResponse(CustomBaseModel):
     chain: str = "cardano"
 
 
-class PortfolioHolding(CustomBaseModel):
-    """Portfolio holding information"""
+class VaultHolding(CustomBaseModel):
+    """Vault holding information"""
 
     token_pair: str = ""
     deposit_token: str = ""  # Token deposited into vault
@@ -42,17 +42,17 @@ class PortfolioHolding(CustomBaseModel):
     logo_url: Optional[str] = None  # For single token holdings
 
 
-class PortfolioHoldingsResponse(CustomBaseModel):
-    """Response model for portfolio holdings"""
+class VaultHoldingsResponse(CustomBaseModel):
+    """Response model for vault holdings"""
 
-    holdings: List[PortfolioHolding] = []
+    holdings: List[VaultHolding] = []
     total: int = 0
     page: int = 1
     limit: int = 20
 
 
-class PortfolioSummaryResponse(CustomBaseModel):
-    """Response model for portfolio summary"""
+class VaultSummaryResponse(CustomBaseModel):
+    """Response model for vault summary"""
 
     total_value_usd: float = 0.0
     total_holdings: int = 0
@@ -142,8 +142,8 @@ class VaultStateResponse(CustomBaseModel):
     total: int = 0
 
 
-class VaultLog(CustomBaseModel):
-    """Vault log entry"""
+class VaultTransaction(CustomBaseModel):
+    """Vault transaction entry"""
 
     id: int = 0
     vault_id: int = 0
@@ -159,10 +159,10 @@ class VaultLog(CustomBaseModel):
     fee: float = 0.0
 
 
-class VaultLogListResponse(CustomBaseModel):
-    """Response model for vault logs list"""
+class VaultTransactionListResponse(CustomBaseModel):
+    """Response model for vault transactions list"""
 
-    logs: List[VaultLog] = Field(default_factory=list)
+    transactions: List[VaultTransaction] = Field(default_factory=list)
     total: int = 0
     page: int = 1
     limit: int = 20
