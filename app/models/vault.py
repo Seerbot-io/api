@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, Float, BigInteger, Text, ForeignKey, DateTime
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Float, BigInteger, Text, ForeignKey, DateTime, Integer
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func, text
 
 from app.db.base import Base
@@ -52,19 +52,22 @@ class Vault(Base):
     )
 
 
-class VaultState(Base):
-    """Model for vault_state table in proddb schema
+class VaultTradePosition(Base):
+    """Model for vault_trade_positions table in proddb schema
     Example:
     {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "vault_id": "550e8400-e29b-41d4-a716-446655440001",
-        "timestamp": 1697123456,
-        "total_value": 1050000.0,
-        "total_value_ada": 500000.0
+        "start_time": 1697123456,
+        "update_time": 1697123500,
+        "open_order_txn": "txn123...",
+        "close_order_txn": "txn456...",
+        "spend": 1000.0,
+        "return_amount": 1050.0
     }
     """
 
-    __tablename__ = "vault_state"
+    __tablename__ = "vault_trade_positions"
     __table_args__ = {"schema": "proddb"}
 
     id = Column(
@@ -78,12 +81,215 @@ class VaultState(Base):
         nullable=False,
         index=True
     )
-    timestamp = Column(BigInteger, nullable=False, index=True)
-    total_value = Column(Float, nullable=False)
-    total_value_ada = Column(Float, nullable=False)
+    start_time = Column(BigInteger, nullable=False, index=True)
+    update_time = Column(BigInteger, nullable=False)
+    open_order_txn = Column(String(255), nullable=False)
+    close_order_txn = Column(String(255), nullable=True)
+    spend = Column(Float, nullable=False)
+    return_amount = Column(Float, nullable=False)
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
+        nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False
+    )
+
+
+class VaultTrade(Base):
+    """Model for vault_trades table in proddb schema
+    Example:
+    {
+        "txn": "txn123...",
+        "vault_id": "550e8400-e29b-41d4-a716-446655440001",
+        "sender": "addr1...",
+        "receiver": "addr2...",
+        "from_token": "lovelace",
+        "to_token": "a0028f350aaabe0545fd...",
+        "from_amount": 1000.0,
+        "to_amount": 500.0,
+        "value": 1000.0,
+        "timestamp": 1697123456,
+        "status": "completed",
+        "price": 2.0,
+        "extend_data": {"key": "value"},
+        "fee": 2.5,
+        "ada_price": 0.5
+    }
+    """
+
+    __tablename__ = "vault_trades"
+    __table_args__ = {"schema": "proddb"}
+
+    txn = Column(String(255), primary_key=True)
+    vault_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("proddb.vault.id"),
+        nullable=False,
+        index=True
+    )
+    sender = Column(String(255), nullable=False)
+    receiver = Column(String(255), nullable=False)
+    from_token = Column(String(255), nullable=False)
+    to_token = Column(String(255), nullable=False)
+    from_amount = Column(Float, nullable=False)
+    to_amount = Column(Float, nullable=False)
+    value = Column(Float, nullable=False)
+    timestamp = Column(BigInteger, nullable=False, index=True)
+    status = Column(String(50), nullable=False)
+    price = Column(Float, nullable=False)
+    extend_data = Column(JSONB, nullable=True)
+    fee = Column(Float, default=0.0)
+    ada_price = Column(Float, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+
+class TradeStrategy(Base):
+    """Model for trade_strategies table in proddb schema
+    Example:
+    {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "name": "RSI Strategy",
+        "description": "RSI over bought over sold",
+        "decision_cycle": "1h",
+        "quote_token_id": "lovelace",
+        "base_token_id": "a0028f350aaabe0545fd...",
+        "source_script": "function strategy() {...}"
+    }
+    """
+
+    __tablename__ = "trade_strategies"
+    __table_args__ = {"schema": "proddb"}
+
+    id = Column(
+        UUID(as_uuid=False),
+        primary_key=True,
+        server_default=text("chatbot.uuid_generate_v4()")
+    )
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    decision_cycle = Column(String(50), nullable=False)
+    quote_token_id = Column(String(255), nullable=False)
+    base_token_id = Column(String(255), nullable=False)
+    source_script = Column(Text, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False
+    )
+
+
+class VaultBalanceSnapshot(Base):
+    """Model for vault_balance_snapshots table in proddb schema
+    (Renamed from vault_state)
+    Example:
+    {
+        "vault_id": "550e8400-e29b-41d4-a716-446655440001",
+        "timestamp": 1697123456,
+        "asset": {"token": "lovelace", "amount": 1000.0, "price_usd": 0.5},
+        "total_value": 1050000.0,
+        "total_value_usd": 525000.0
+    }
+    """
+
+    __tablename__ = "vault_balance_snapshots"
+    __table_args__ = {"schema": "proddb"}
+
+    vault_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("proddb.vault.id"),
+        primary_key=True,
+        nullable=False,
+        index=True
+    )
+    timestamp = Column(BigInteger, primary_key=True, nullable=False, index=True)
+    asset = Column(JSONB, nullable=False)  # JSON data about token amount, price in USD
+    total_value = Column(Float, nullable=False)
+    total_value_usd = Column(Float, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+
+class VaultState(Base):
+    """Model for vault_state table in proddb schema (recreated)
+    Example:
+    {
+        "vault_id": "550e8400-e29b-41d4-a716-446655440001",
+        "vault_address": "addr1...",
+        "update_time": 1697123456,
+        "state": "trading",
+        "tvl_usd": 100000.0,
+        "max_drawdown": 5.0,
+        "trade_start_time": 1697123000,
+        "start_value": 100000.0,
+        "current_value": 105000.0,
+        "trade_end_time": null,
+        "return_percent": 5.0,
+        "total_trades": 10,
+        "winning_trades": 7,
+        "losing_trades": 3,
+        "win_rate": 70.0,
+        "avg_profit_per_winning_trade_pct": 2.5,
+        "avg_loss_per_losing_trade_pct": -1.0,
+        "avg_trade_duration": 3600.0,
+        "total_fees_paid": 50.0
+    }
+    """
+
+    __tablename__ = "vault_state"
+    __table_args__ = {"schema": "proddb"}
+
+    vault_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("proddb.vault.id"),
+        primary_key=True,
+        nullable=False,
+        index=True
+    )
+    vault_address = Column(String(255), nullable=False)
+    update_time = Column(BigInteger, nullable=False, index=True)
+    state = Column(String(50), nullable=False)  # accepting_deposits, trading, settled, closed
+    tvl_usd = Column(Float, default=0.0)
+    max_drawdown = Column(Float, default=0.0)
+    trade_start_time = Column(BigInteger, nullable=True)
+    start_value = Column(Float, default=0.0)
+    current_value = Column(Float, default=0.0)
+    trade_end_time = Column(BigInteger, nullable=True)
+    return_percent = Column(Float, default=0.0)
+    total_trades = Column(Integer, default=0)
+    winning_trades = Column(Integer, default=0)
+    losing_trades = Column(Integer, default=0)
+    win_rate = Column(Float, default=0.0)
+    avg_profit_per_winning_trade_pct = Column(Float, default=0.0)
+    avg_loss_per_losing_trade_pct = Column(Float, default=0.0)
+    avg_trade_duration = Column(Float, default=0.0)
+    total_fees_paid = Column(Float, default=0.0)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False
     )
 

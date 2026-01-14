@@ -371,7 +371,8 @@ def get_user_swaps(
 )
 def get_vault_transactions(
     wallet_address: str = Query(
-        ..., description="Wallet address of the user (required)"
+        # ..., description="Wallet address of the user (required)"
+        "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm", description="Wallet address of the user (required)"
     ),
     vault_id: Optional[int] = Query(
         default=None, description="Filter by vault ID (optional)"
@@ -393,6 +394,8 @@ def get_vault_transactions(
 
     Returns:
     - List of vault transactions (deposits, withdrawals, claims, reinvests)
+
+    *Sample wallet address:* addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm
     """
     wallet_address = wallet_address.strip().lower()
     # Validate and adjust pagination parameters
