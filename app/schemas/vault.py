@@ -7,15 +7,15 @@ from app.schemas.my_base_model import CustomBaseModel
 
 class VaultListItem(CustomBaseModel):
     """Vault list item for /vaults/{status} endpoint"""
-
+    id: str = ""  # uuid
     state: str = ""  # accepting_deposits, trading, settled, closed
     icon_url: Optional[str] = None
     vault_name: str = ""
-    description: Optional[str] = None
+    summary: Optional[str] = None
     annual_return: float = 0.0
     tvl_usd: float = 0.0
     max_drawdown: float = 0.0
-    trade_start_time: Optional[int] = None
+    start_time: Optional[int] = None
 
 
 class VaultListResponse(CustomBaseModel):
@@ -23,6 +23,8 @@ class VaultListResponse(CustomBaseModel):
 
     vaults: List[VaultListItem] = Field(default_factory=list)
     total: int = 0
+    page: int = 1
+    limit: int = 20
 
 
 class VaultInfo(CustomBaseModel):
@@ -33,8 +35,8 @@ class VaultInfo(CustomBaseModel):
     vault_type: str = "seerbot_vault_v1"
     blockchain: str = "cardano"
     address: str = ""
+    summary: Optional[str] = None
     description: Optional[str] = None  # HTML text
-    trade_strategy_id: Optional[str] = None
 
 
 class VaultValuesResponse(CustomBaseModel):
@@ -56,7 +58,6 @@ class VaultStats(CustomBaseModel):
     start_value: float = 0.0
     current_value: float = 0.0
     return_percent: float = 0.0
-    update_time: int = 0
     total_trades: int = 0
     winning_trades: int = 0
     losing_trades: int = 0

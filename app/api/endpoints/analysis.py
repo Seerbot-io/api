@@ -540,7 +540,7 @@ def _fetch_top_traders_data(
     query = f"""
         SELECT 
             wallet_address,
-            COALESCE(SUM(value*ada_price), 0) as total_volume,
+            COALESCE(SUM(ada_value*ada_price), 0) as total_volume,
             COUNT(transaction_id) as total_trades
         FROM proddb.swap_transactions
         WHERE status = 'completed' and {where_clause} 

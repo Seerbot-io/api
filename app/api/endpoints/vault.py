@@ -1,4 +1,6 @@
+from datetime import datetime
 from typing import List, Optional
+import uuid
 
 from fastapi import Depends, HTTPException, Query
 from fastapi import status as http_status
@@ -22,54 +24,84 @@ group_tags: List[str] = ["vault"]
 
 
 @router.get(
-    "/{status}",
+    "",
     tags=group_tags,
     response_model=VaultListResponse,
     status_code=http_status.HTTP_200_OK,
 )
 def get_vaults_by_status(
-    status: str,
+    status: str = Query("active", description="Filter by status: active, inactive, or all (default: active)"),
+    page: int = Query(1, ge=1, description="Page number (default: 1)"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page (default: 20, max: 100)"),
+    offset: Optional[int] = Query(None, description="Number of items to skip (alternative to page)"),
     db: Session = Depends(get_db),
 ) -> VaultListResponse:
     """
     Get list of vaults filtered by status.
 
-    Path Parameters:
-    - status: active or inactive
-      - active: returns vaults with state 'accepting_deposits' or 'trading'
-      - inactive: returns vaults with state 'settled' or 'closed'
+    Query Parameters:
+    - status: active, inactive, or all (default: active)
+      - active: returns vaults with state 'accepting_deposits', 'trading', or 'settled'
+      - inactive: returns vaults with state 'closed'
+      - all: returns all vaults
 
     Returns:
-    - List of vaults with state, icon_url, vault_name, description, annual_return, tvl_usd, max_drawdown, trade_start_time
+    - page: Page number
+    - limit: Items per page
+    - offset: Number of items to skip
+    - vaults: List of vault items:
+      - id: Vault UUID
+      - state: Vault state
+      - icon_url: Vault icon URL (optional)
+      - vault_name: Vault name
+      - summary: Vault summary (optional)
+      - annual_return: Vault annual return
+      - tvl_usd: Vault TVL in USD
+      - max_drawdown: Vault max drawdown (optional)
+      - start_time: Vault start time
+
+      *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
     """
-    if status not in ["active", "inactive"]:
-        raise HTTPException(
-            status_code=400, detail="Status must be 'active' or 'inactive'"
-        )
+    # Validate and adjust pagination parameters
+    page = max(1, page)
+    limit = max(1, min(100, limit))
+    offset = (page - 1) * limit
 
+    status = status.lower().strip()
     # Map status to state values
-    if status == "active":
-        state_filter = "('accepting_deposits', 'trading')"
+    if status == "all":
+        state_filter = ""
+    elif status == "inactive":
+        state_filter = "where state in ('closed')"
     else:
-        state_filter = "('settled', 'closed')"
-
+        state_filter = "where state in ('accepting_deposits', 'trading', 'settled')"
     # Query vault_state joined with vault and tokens table
     query_sql = text(
         f"""
         SELECT 
-            vs.state,
+            v.id,
+            case 
+                when vs.state is not null then vs.state 
+                when extract(epoch from now()) < v.trading_time then 'accepting_deposits' 
+                when extract(epoch from now()) < v.settled_time then 'trading' 
+                when extract(epoch from now()) < v.closed_time then 'settled'
+                else 'closed' 
+            end as state,
             v.name as vault_name,
-            v.description,
+            v.summary,
             vs.tvl_usd,
             vs.max_drawdown,
-            vs.trade_start_time,
+            v.depositing_time as start_time,
             vs.return_percent,
-            t.logo_url as icon_url
-        FROM proddb.vault_state vs
-        JOIN proddb.vault v ON vs.vault_id = v.id
-        LEFT JOIN proddb.tokens t ON v.token_id = t.id
-        WHERE vs.state IN {state_filter}
-        ORDER BY vs.tvl_usd DESC
+            v.logo_url as icon_url
+        from(
+            select vault_id, state, tvl_usd, max_drawdown, return_percent
+            FROM proddb.vault_state
+            {state_filter}
+        ) vs
+        left JOIN proddb.vault v ON vs.vault_id = v.id
+        ORDER BY v.depositing_time DESC
+        LIMIT {limit} OFFSET {offset}
         """
     )
 
@@ -79,8 +111,8 @@ def get_vaults_by_status(
     for row in results:
         # Calculate annual_return from return_percent and trade duration
         annual_return = 0.0
-        if row.trade_start_time:
-            # If we have trade_start_time, we can calculate annualized return
+        if row.start_time:
+            # If we have start_time, we can calculate annualized return
             # For now, use return_percent as annual_return (can be improved with actual time calculation)
             annual_return = float(row.return_percent) if row.return_percent else 0.0
 
@@ -89,18 +121,19 @@ def get_vaults_by_status(
 
         vaults.append(
             VaultListItem(
+                id=str(row.id),
                 state=str(row.state),
                 icon_url=icon_url,
                 vault_name=str(row.vault_name) if row.vault_name else "",
-                description=str(row.description) if row.description else None,
+                summary=str(row.summary) if row.summary else None,
                 annual_return=round(annual_return, 2),
                 tvl_usd=float(row.tvl_usd) if row.tvl_usd else 0.0,
                 max_drawdown=float(row.max_drawdown) if row.max_drawdown else 0.0,
-                trade_start_time=int(row.trade_start_time) if row.trade_start_time else None,
+                start_time=int(row.start_time) if row.start_time else int(datetime.now().timestamp()),
             )
         )
-
-    return VaultListResponse(vaults=vaults, total=len(vaults))
+    total = len(vaults) + offset*limit
+    return VaultListResponse(vaults=vaults, total=total, page=page, limit=limit)
 
 
 @router.get(
@@ -120,57 +153,43 @@ def get_vault_info(
     - id: Vault UUID
 
     Returns:
-    - icon_url, vault_name, vault_type, blockchain, address, description, trade_strategy_id
+    - icon_url: Vault icon URL (optional)
+    - vault_name: Vault name
+    - vault_type: Vault type
+    - blockchain: Blockchain
+    - address: Vault address
+    - summary: Vault summary (optional)
+    - description: Vault description (optional)
+
+    *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
     """
+    id = id.strip()
+    # check if id is a valid uuid
+    try:
+        uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid vault ID")
     # Query vault table joined with trade_strategies if available
     query_sql = text(
         f"""
         SELECT 
             v.name as vault_name,
             v.address,
+            v.summary,
             v.description,
             v.token_id,
+            v.logo_url,
             v.id as vault_id
         FROM proddb.vault v
         WHERE v.id = '{id}'
         LIMIT 1
         """
     )
-
+    result = None
     result = db.execute(query_sql).fetchone()
-
     if not result:
         raise HTTPException(status_code=404, detail="Vault not found")
-
-    # Get icon_url from tokens table
-    icon_url = None
-    if result.token_id:
-        token_query = text(
-            f"""
-            SELECT logo_url 
-            FROM proddb.tokens 
-            WHERE id = '{result.token_id}'
-            LIMIT 1
-            """
-        )
-        token_result = db.execute(token_query).fetchone()
-        if token_result and token_result.logo_url:
-            icon_url = str(token_result.logo_url)
-
-    # Get trade_strategy_id if available (assuming vault has a reference to trade_strategy)
-    # For now, we'll need to check if there's a relationship or add it to vault table
-    # Since the design doesn't specify how vault links to trade_strategy, we'll return None for now
-    trade_strategy_id = None
-
-    return VaultInfo(
-        icon_url=icon_url,
-        vault_name=str(result.vault_name) if result.vault_name else "",
-        vault_type="seerbot_vault_v1",
-        blockchain="cardano",
-        address=str(result.address) if result.address else "",
-        description=str(result.description) if result.description else None,
-        trade_strategy_id=trade_strategy_id,
-    )
+    return VaultInfo(**result._asdict())
 
 
 @router.get(
@@ -181,9 +200,9 @@ def get_vault_info(
 )
 def get_vault_values(
     id: str,
-    resolution: Optional[str] = Query(None, description="Time resolution (e.g., 1h, 1d)"),
-    start_time: Optional[int] = Query(None, description="Start timestamp (Unix timestamp)"),
-    end_time: Optional[int] = Query(None, description="End timestamp (Unix timestamp)"),
+    resolution: Optional[str] = Query(None, description="Time resolution (e.g., 1d, 1w, 1m)"),
+    # start_time: Optional[int] = Query(None, description="Start timestamp (Unix timestamp)"),
+    # end_time: Optional[int] = Query(None, description="End timestamp (Unix timestamp)"),
     count_back: Optional[int] = Query(None, description="Number of bars to return from end"),
     db: Session = Depends(get_db),
 ) -> VaultValuesResponse:
@@ -194,37 +213,56 @@ def get_vault_values(
     - id: Vault UUID
 
     Query Parameters:
-    - resolution: Time resolution (optional)
+    - resolution: Time resolution (e.g., 1d, 1w, 1m, default: 1d)
     - start_time: Start timestamp (Unix timestamp, optional)
     - end_time: End timestamp (Unix timestamp, optional)
-    - count_back: Number of bars to return from end (optional)
+    - count_back: Number of bars to return from end (default: 20)
 
-    Returns:
-    - TradingView format with s (status), t (timestamps), c (closing prices)
+    Returns: TradingView format with:
+    - s (status): "ok" or "no_data"
+    - t (timestamps): List of timestamps
+    - c (closing prices): List of closing prices
+
+    *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
     """
+    id = id.lower().strip()
+    # check if id is a valid uuid
+    try:
+        uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid vault ID")
+    resolution = resolution.lower().strip() if resolution else "1d"
+    if resolution == "1w":
+        resolution_seconds = 604800
+    elif resolution == "1m":
+        resolution_seconds = 2592000
+    else:  # default to 1d
+        resolution_seconds = 86400
+    count_back = count_back if count_back else 20
+
     # Build query for vault_balance_snapshots
     base_query = f"""
-        SELECT timestamp, total_value_usd as closing_price
-        FROM proddb.vault_balance_snapshots
-        WHERE vault_id = '{id}'
+        select vbs.timestamp, vbs.total_value_usd as closing_price 
+        from (
+        select case when closed_time is not null and closed_time < EXTRACT(EPOCH FROM now())::BIGINT then closed_time
+                else EXTRACT(EPOCH FROM now())::BIGINT
+            end end_time
+        from proddb.vault
+        where id =  '{id}'
+        ) v
+        JOIN proddb.vault_balance_snapshots vbs on vbs.vault_id = '{id}'
+            and vbs.timestamp < v.end_time
+            and vbs.timestamp > v.end_time - {count_back} * {resolution_seconds}
+            and vbs.timestamp % {resolution_seconds} = 0
+        ORDER BY timestamp ASC    
     """
 
-    # Add time filters
-    if start_time:
-        base_query += f" AND timestamp >= {start_time}"
-    if end_time:
-        base_query += f" AND timestamp <= {end_time}"
-
-    # Order by timestamp
-    base_query += " ORDER BY timestamp ASC"
-
-    # Add limit if count_back is specified
-    if count_back:
-        base_query += f" LIMIT {count_back}"
-
     query_sql = text(base_query)
-    results = db.execute(query_sql).fetchall()
-
+    results = []
+    try:
+        results = db.execute(query_sql).fetchall()
+    except Exception as e:
+        print(f"Database error: {str(e)}")
     if not results:
         return VaultValuesResponse(s="no_data", t=[], c=[])
 
@@ -233,7 +271,7 @@ def get_vault_values(
 
     return VaultValuesResponse(s="ok", t=timestamps, c=closing_prices)
 
-
+# todo: fix open_trade.value does not exist
 @router.get(
     "/{id}/positions",
     tags=group_tags,
@@ -261,8 +299,24 @@ def get_vault_positions(
     - offset: Number of items to skip (alternative to page, optional)
 
     Returns:
-    - List of positions with pair, direction, return_percent, status, prices, etc.
+    - total: Total number of positions
+    - page: Page number
+    - limit: Items per page
+    - offset: Number of items to skip
+    - positions: List of positions with:
+      - pair: Pair string (e.g., "ADA/USDM")
+      - direction: Direction (buy or sell)
+      - return_percent: Return percentage
+      - status: Status (open or closed)
+
+    *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
     """
+    id = id.lower().strip()
+    # check if id is a valid uuid
+    try:
+        uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid vault ID")
     # Calculate offset from page if not provided
     if offset is None:
         offset = (page - 1) * limit
@@ -270,6 +324,7 @@ def get_vault_positions(
     # Build status filter
     status_filter = ""
     if status:
+        status = status.lower().strip()
         if status == "open":
             status_filter = "AND vtp.close_order_txn IS NULL"
         elif status == "closed":
@@ -400,10 +455,31 @@ def get_vault_stats(
     Path Parameters:
     - id: Vault UUID
 
-    Returns:
-    - Complete vault statistics from vault_state table including:
-      state, tvl_usd, max_drawdown, trade stats, win rate, etc.
+    Returns: 
+      - state: Vault state
+      - tvl_usd: TVL in USD
+      - max_drawdown: Max drawdown
+      - trade_start_time: Trade start time
+      - trade_end_time: Trade end time
+      - start_value: Start value
+      - current_value: Current value
+      - return_percent: Return percentage
+      - update_time: Update time
+      - total_trades: Total trades
+      - winning_trades: Winning trades
+      - losing_trades: Losing trades
+      - win_rate: Win rate
+      - avg_profit_per_winning_trade_pct: Average profit per winning trade percentage
+      - avg_loss_per_losing_trade_pct: Average loss per losing trade percentage
+      - avg_trade_duration: Average trade duration
+      - total_fees_paid: Total fees paid
     """
+    id = id.lower().strip()
+    # check if id is a valid uuid
+    try:
+        uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid vault ID")
     # Query vault_state table
     query_sql = text(
         f"""
@@ -416,7 +492,6 @@ def get_vault_stats(
             vs.start_value,
             vs.current_value,
             vs.return_percent,
-            vs.update_time,
             vs.total_trades,
             vs.winning_trades,
             vs.losing_trades,
@@ -431,31 +506,13 @@ def get_vault_stats(
         """
     )
 
-    result = db.execute(query_sql).fetchone()
+    result = None
+    try:
+        result = db.execute(query_sql).fetchone()
+    except Exception as e:
+        print(f"Database error: {str(e)}")
 
     if not result:
         raise HTTPException(status_code=404, detail="Vault not found")
 
-    return VaultStats(
-        state=str(result.state) if result.state else "",
-        tvl_usd=float(result.tvl_usd) if result.tvl_usd else 0.0,
-        max_drawdown=float(result.max_drawdown) if result.max_drawdown else 0.0,
-        trade_start_time=int(result.trade_start_time) if result.trade_start_time else None,
-        trade_end_time=int(result.trade_end_time) if result.trade_end_time else None,
-        start_value=float(result.start_value) if result.start_value else 0.0,
-        current_value=float(result.current_value) if result.current_value else 0.0,
-        return_percent=float(result.return_percent) if result.return_percent else 0.0,
-        update_time=int(result.update_time) if result.update_time else 0,
-        total_trades=int(result.total_trades) if result.total_trades else 0,
-        winning_trades=int(result.winning_trades) if result.winning_trades else 0,
-        losing_trades=int(result.losing_trades) if result.losing_trades else 0,
-        win_rate=float(result.win_rate) if result.win_rate else 0.0,
-        avg_profit_per_winning_trade_pct=float(result.avg_profit_per_winning_trade_pct)
-        if result.avg_profit_per_winning_trade_pct
-        else 0.0,
-        avg_loss_per_losing_trade_pct=float(result.avg_loss_per_losing_trade_pct)
-        if result.avg_loss_per_losing_trade_pct
-        else 0.0,
-        avg_trade_duration=float(result.avg_trade_duration) if result.avg_trade_duration else 0.0,
-        total_fees_paid=float(result.total_fees_paid) if result.total_fees_paid else 0.0,
-    )
+    return VaultStats(**result._asdict())

@@ -1,3 +1,5 @@
+from datetime import datetime
+from pydoc import describe
 from sqlalchemy import Column, String, Float, BigInteger, Text, ForeignKey, DateTime, Integer
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func, text
@@ -18,7 +20,9 @@ class Vault(Base):
         "run_time": 1697123456,
         "stop_time": null,
         "status": "active",
-        "description": "USDM trading vault"
+        "summary": "USDM trading vault"
+        settled_time": 1697123456,
+        "closed_time": 1697123456,
     }
     """
 
@@ -30,27 +34,19 @@ class Vault(Base):
         primary_key=True,
         server_default=text("chatbot.uuid_generate_v4()")
     )
+    logo_url = Column(String(255), nullable=True)
     name = Column(String(255), nullable=False)
     algorithm = Column(String(255))
     address = Column(String(255))
     token_id = Column(String(255))
     total_fund = Column(Float, default=0.0)
-    run_time = Column(BigInteger)
-    stop_time = Column(BigInteger, nullable=True)
+    depositing_time = Column(BigInteger)
+    trading_time = Column(BigInteger, nullable=True)
     status = Column(String(50), default="active")
     description = Column(Text, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
-    )
-
+    settled_time = Column(BigInteger, nullable=True)
+    closed_time = Column(BigInteger, nullable=True)
+    summary = Column(String(255), nullable=True)
 
 class VaultTradePosition(Base):
     """Model for vault_trade_positions table in proddb schema
@@ -87,17 +83,6 @@ class VaultTradePosition(Base):
     close_order_txn = Column(String(255), nullable=True)
     spend = Column(Float, nullable=False)
     return_amount = Column(Float, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
-    )
 
 
 class VaultTrade(Base):
@@ -112,7 +97,7 @@ class VaultTrade(Base):
         "to_token": "a0028f350aaabe0545fd...",
         "from_amount": 1000.0,
         "to_amount": 500.0,
-        "value": 1000.0,
+        "ada_value": 1000.0,
         "timestamp": 1697123456,
         "status": "completed",
         "price": 2.0,
@@ -138,18 +123,14 @@ class VaultTrade(Base):
     to_token = Column(String(255), nullable=False)
     from_amount = Column(Float, nullable=False)
     to_amount = Column(Float, nullable=False)
-    value = Column(Float, nullable=False)
+    ada_value = Column(Float, nullable=False)
     timestamp = Column(BigInteger, nullable=False, index=True)
     status = Column(String(50), nullable=False)
     price = Column(Float, nullable=False)
     extend_data = Column(JSONB, nullable=True)
     fee = Column(Float, default=0.0)
     ada_price = Column(Float, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
+    
 
 
 class TradeStrategy(Base):
@@ -281,17 +262,6 @@ class VaultState(Base):
     avg_loss_per_losing_trade_pct = Column(Float, default=0.0)
     avg_trade_duration = Column(Float, default=0.0)
     total_fees_paid = Column(Float, default=0.0)
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
-    )
 
 
 class VaultLog(Base):
@@ -333,11 +303,6 @@ class VaultLog(Base):
     timestamp = Column(BigInteger, nullable=False)
     status = Column(String(50), default="pending")
     fee = Column(Float, default=0.0)
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
 
 
 class UserEarning(Base):
@@ -373,14 +338,3 @@ class UserEarning(Base):
     total_withdrawal = Column(Float, default=0.0)
     current_value = Column(Float, default=0.0)
     last_updated_timestamp = Column(BigInteger)
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
-    )

@@ -1,4 +1,3 @@
-import time
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, cast
@@ -139,6 +138,8 @@ def get_notices(
     - List of notices ordered by created_at DESC
     - Total count of matching notices
     """
+    type = type.lower().strip() if type else "all"
+    order = order.lower().strip() if order else "desc"
     notice_responses = _get_notices(type, limit, offset, order, after_id)
     total = len(notice_responses)
     return NoticeListResponse(
@@ -274,6 +275,8 @@ def get_user_swaps(
 
     Returns:
     - List of swap transactions with token information
+
+    *Sample wallet address:* addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm
     """
     wallet_address = wallet_address.strip().lower()
     # Validate and adjust pagination parameters

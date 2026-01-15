@@ -211,7 +211,7 @@ def extract_swap_info(market_order_tx: str) -> dict:
         "token_out": token_out,
         "amount_out": amount_out,
         "price": price,
-        "value": value,
+        "value": value,  # ada_value
         "fee": fee,
         "ada_price": ada_price,
     }

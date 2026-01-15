@@ -33,7 +33,7 @@ class Swap(Base):
     from_amount = Column(Float)
     to_amount = Column(Float)
     price = Column(Float)
-    value = Column(Float)
+    ada_value = Column(Float)
     timestamp = Column(BigInteger, nullable=False)
     fee = Column(Float)
     ada_price = Column(Float)
