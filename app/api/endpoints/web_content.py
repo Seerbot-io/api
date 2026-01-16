@@ -49,7 +49,7 @@ def get_statistics(db: Session = Depends(get_db)) -> Statistics:
         select count(*) as n_token
         from proddb.tokens
     ) a
-    join (select sum(ada_value*ada_price) liquidity, count(*) n_tx
+    join (select sum(value_ada*price_ada) liquidity, count(*) n_tx
     from proddb.swap_transactions 
     where status = 'completed'
     ) b on true

@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     # BLOCKFROST
     BLOCKFROST_API_KEY: str
 
+    # Token price cache settings
+    TOKEN_CACHE_ENABLE_BACKGROUND_REFRESH: bool = False
+    TOKEN_CACHE_REFRESH_INTERVAL: int = 15  # seconds
+    TOKEN_CACHE_INFO_TTL: int = 3600  # 1 hour in seconds
+    TOKEN_CACHE_PRICE_TTL: int = 30  # 30 seconds
+
 
 # Instantiate the settings
 settings = Settings()  # type: ignore

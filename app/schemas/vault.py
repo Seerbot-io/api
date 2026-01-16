@@ -32,8 +32,8 @@ class VaultInfo(CustomBaseModel):
 
     icon_url: Optional[str] = None
     vault_name: str = ""
-    vault_type: str = "seerbot_vault_v1"
-    blockchain: str = "cardano"
+    vault_type: str = "Seerbot Vault"
+    blockchain: str = "Cardano"
     address: str = ""
     summary: Optional[str] = None
     description: Optional[str] = None  # HTML text
@@ -72,17 +72,9 @@ class VaultPosition(CustomBaseModel):
     """Vault position for /vaults/{id}/positions endpoint"""
 
     pair: str = ""  # e.g., "ADA/USDM"
-    direction: str = ""  # buy | sell
-    return_percent: float = 0.0
-    status: str = ""  # open | closed
-    spend_amount: float = 0.0
-    value_usd: float = 0.0
-    open_price: float = 0.0
-    close_price: Optional[float] = None
-    start_time: int = 0
-    update_time: int = 0
-    open_order_txn: str = ""
-    close_order_txn: Optional[str] = None
+    value: float = 0.0  # current value (return_amount if closed, estimated from current prices if open)
+    profit: float = 0.0  # profit percentage: (return_amount - spend) / spend * 100
+    open_time: int = 0  # position start_time
 
 
 class VaultPositionsResponse(CustomBaseModel):

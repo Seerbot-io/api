@@ -113,23 +113,6 @@ class VaultListResponse(CustomBaseModel):
     total: int = 0
 
 
-class VaultState(CustomBaseModel):
-    """Vault state at a point in time"""
-
-    timestamp: int = 0
-    total_value: float = 0.0
-    total_value_ada: float = 0.0
-
-
-class VaultStateResponse(CustomBaseModel):
-    """Response model for vault state history"""
-
-    vault_id: str = ""  # Changed from int to str (UUID)
-    vault_name: str = ""
-    states: List[VaultState] = Field(default_factory=list)
-    total: int = 0
-
-
 class VaultTransaction(CustomBaseModel):
     """Vault transaction entry"""
 

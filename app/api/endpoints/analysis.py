@@ -2,7 +2,7 @@ import asyncio
 import json
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
 import requests
@@ -17,6 +17,7 @@ from app.db.session import SessionLocal, get_db, get_tables
 from app.models.pools import Pool
 from app.models.tokens import Token
 from app.services.onchain_process import add_swap_to_queue
+from app.services import price_cache
 
 router = APIRouter()
 tables = get_tables(settings.SCHEMA_2)
@@ -198,95 +199,6 @@ def get_indicators(
     )
 
 
-# todo: fix this to cache the data param make cache inefficient
-@cache("in-1m", value_type=list[schemas.TokenMarketInfo])
-def _get_token_info_data(symbols: list[str]) -> list[schemas.TokenMarketInfo]:
-    time_now = (int(datetime.now().timestamp()) // 300 - 1) * 300
-    time_24h_ago = time_now - 24 * 60 * 60
-    # print("[No cache] get_token_info_data for symbols: ", symbols)
-    db = SessionLocal()
-    data: list[schemas.TokenMarketInfo] = []
-    if "ADA" in symbols:
-        symbols.pop(symbols.index("ADA"))
-        query = f"""  
-        select a.*, c.price, c.change_24h
-        ,d.low_24h low_24h, d.high_24h high_24h, d.volume_24h volume_24h, c.price * a.total_supply as market_cap
-        from (
-            select id, name, symbol, logo_url, total_supply
-            from proddb.tokens
-            where symbol='ADA'
-        ) a left join(
-            select price, ((price - price_24h) / price) * 100 as change_24h
-            from (
-                select open_time, close as price, lead(close, 3) over (ORDER by open_time desc) price_24h, row_number() over (ORDER by open_time desc) as r
-                from proddb.coin_prices_5m cph
-                where symbol='USDM/ADA'
-                    and ((open_time >= {time_24h_ago} - 900 and open_time <= {time_24h_ago}) -- range of 20 minutes for missing data (4 records)
-                        or open_time > {time_now} - 600 -- if missing data, use the last 10 minutes data (3 records)
-                    )
-            ) coin
-            where r = 1
-        ) c on TRUE
-        left join(   
-            select min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
-            from proddb.coin_prices_1h cph
-            where symbol='USDM/ADA'
-                and open_time > {time_24h_ago}
-            ) d on TRUE
-        """
-        try:
-            token = db.execute(text(query)).fetchone()
-            if token is None:
-                raise HTTPException(status_code=404, detail="Token not found")
-            data.append(schemas.TokenMarketInfo.from_record(token))
-        except Exception as e:
-            print(e)
-            raise HTTPException(status_code=500, detail="Failed to get token info")
-
-    if len(symbols) > 0:
-        symbols_str = "('" + "', '".join(symbols) + "')"
-        pairs_str = "('" + "', '".join([f"{symbol}/ADA" for symbol in symbols]) + "')"
-        query = f"""  
-        select a.*, c.price/b.ada_price as price, c.change_24h
-        ,d.low_24h/b.ada_price low_24h, d.high_24h/b.ada_price high_24h, d.volume_24h/b.ada_price volume_24h, c.price * a.total_supply as market_cap
-        from (
-            select id, name, symbol, logo_url, total_supply, symbol || '/ADA' as pair
-            from proddb.tokens
-            where symbol in {symbols_str}
-        ) a left join(
-            select close as ada_price
-            from proddb.coin_prices_5m cph
-            where symbol='USDM/ADA'
-                and open_time > {time_24h_ago}
-                order by open_time desc
-                limit 1
-        ) b on true
-        left join(
-            select symbol, price, ((price - price_24h) / price) * 100 as change_24h
-            from (
-                select symbol, open_time, close as price, lead(close, 3) over (PARTITION BY symbol ORDER by open_time desc) price_24h, row_number() over (PARTITION BY symbol ORDER by open_time desc) as r
-                from proddb.coin_prices_5m cph
-                where symbol in {pairs_str}
-                    and ((open_time >= {time_24h_ago} - 900 and open_time <= {time_24h_ago}) -- range of 20 minutes for missing data (4 records)
-                        or open_time > {time_now} - 600 -- if missing data, use the last 10 minutes data (3 records)
-                    )
-            ) coin
-            where r = 1
-        ) c on a.pair = c.symbol
-        left join(   
-            select symbol, min(low) low_24h, max(high) high_24h, sum(volume) volume_24h
-            from proddb.coin_prices_1h cph
-            where symbol in {pairs_str}
-                and open_time > {time_24h_ago}
-                group by symbol
-            ) d on a.pair = d.symbol
-        """
-        tokens = db.execute(text(query)).fetchall()
-        data += [schemas.TokenMarketInfo.from_record(token) for token in tokens]
-    db.close()
-    return data
-
-
 @router.get("/tokens", tags=group_tags, response_model=schemas.TokenList)
 @cache("in-1m")
 def get_tokens(
@@ -329,7 +241,8 @@ def get_tokens(
     symbols: list[str] = [
         str(token.symbol) for token in tokens[offset : offset + page_size]
     ]
-    token_data = _get_token_info_data(symbols)
+    # Use combined info and price data for efficient retrieval
+    token_data = _get_tokens_bulk(symbols)
     # Convert to response format
     return schemas.TokenList(total=n, page=page, tokens=token_data)
 
@@ -353,10 +266,9 @@ def get_token_info(
     - volume_24h: Token trade volume in 24h
     """
     symbol = symbol.strip()
-    token_data = _get_token_info_data([symbol])
-    if token_data is None or len(token_data) == 0:
-        raise HTTPException(status_code=404, detail="Token not found")
-    return token_data[0]
+    # Use combined info and price data for efficient retrieval
+    token_data = _get_token_market_info(symbol)
+    return token_data
 
 
 @router.post("/swaps", tags=group_tags, response_model=schemas.MessageResponse)
@@ -437,7 +349,7 @@ def get_swaps(
         limit_offset_sql += f"LIMIT {limit}"
     if offset is not None and offset > 0:
         limit_offset_sql += f" OFFSET {offset}"
-    # Fetch paginated rows
+    # Fetch paginated rows with total count in one query
     # change to proddb schema
     data_sql = text(
         f"""
@@ -455,7 +367,8 @@ def get_swaps(
             case when from_token = '{quote_token}' then from_amount / to_amount else to_amount / from_amount end as price,
             -- price,
             timestamp,
-            status
+            status,
+            COUNT(*) OVER() AS total_count
         FROM proddb.swap_transactions
         WHERE {where_sql}
         ORDER BY timestamp DESC
@@ -464,7 +377,7 @@ def get_swaps(
     )
     swaps = db.execute(data_sql).fetchall()
 
-    total = len(swaps)
+    total = int(swaps[0].total_count) if swaps else 0
     # Convert to response format
     transactions = [
         schemas.SwapTransaction(
@@ -540,7 +453,7 @@ def _fetch_top_traders_data(
     query = f"""
         SELECT 
             wallet_address,
-            COALESCE(SUM(ada_value*ada_price), 0) as total_volume,
+            COALESCE(SUM(value_ada*price_ada), 0) as total_volume,
             COUNT(transaction_id) as total_trades
         FROM proddb.swap_transactions
         WHERE status = 'completed' and {where_clause} 
@@ -901,12 +814,111 @@ def generate_subscriber_id(symbol: str, resolution: str) -> str:
     return f"BARS_{pair}_{resolution}"
 
 
+def _get_token_market_info(symbol: str) -> schemas.TokenMarketInfo:
+    """Get complete token market info by combining cached info and price data"""
+    # Get info from cache or DB (checks cache first)
+    info = price_cache.get_token_info(symbol)
+    # Get price from cache or DB (checks cache first)
+    price = price_cache.get_token_price(symbol)
+
+    if info and price:
+        # Calculate market cap
+        market_cap = price.price * info.total_supply if info.total_supply > 0 else 0.0
+
+        return schemas.TokenMarketInfo(
+            id=info.id,
+            name=info.name,
+            symbol=info.symbol,
+            logo_url=info.logo_url,
+            price=price.price,
+            change_24h=price.change_24h,
+            low_24h=price.low_24h,
+            high_24h=price.high_24h,
+            volume_24h=price.volume_24h,
+            market_cap=market_cap
+        )
+
+    # If either is missing, this should not happen with proper cache management
+    raise HTTPException(status_code=404, detail="Token not found")
+
+
+def _get_tokens_bulk(symbols: List[str]) -> List[schemas.TokenMarketInfo]:
+    """Get multiple token market info with cache optimization"""
+    if not symbols:
+        return []
+
+    # Normalize symbols and create mapping for original -> normalized
+    symbol_map: Dict[str, str] = {}
+    normalized_symbols: List[str] = []
+    for s in symbols:
+        normalized = s.strip().upper()
+        if normalized:
+            symbol_map[normalized] = s  # Map normalized back to original for ordering
+            if normalized not in normalized_symbols:
+                normalized_symbols.append(normalized)
+
+    if not normalized_symbols:
+        return []
+
+    # Process ADA first if in the list (optimization)
+    all_symbols = normalized_symbols.copy()
+    if "ADA" in all_symbols:
+        all_symbols.remove("ADA")
+        all_symbols.insert(0, "ADA")  # Put ADA at the front
+
+    # Get info and prices from cache or DB in single pass
+    # Cache manager automatically fetches from DB if not cached
+    info_dict: Dict[str, Any] = {}
+    price_dict: Dict[str, Any] = {}
+    
+    for symbol in all_symbols:
+        info = price_cache.get_token_info(symbol)
+        price = price_cache.get_token_price(symbol)
+        
+        if info:
+            info_dict[symbol] = info
+        if price:
+            price_dict[symbol] = price
+
+    # Combine info and price data, build result dict
+    result_dict: Dict[str, schemas.TokenMarketInfo] = {}
+    
+    for symbol in all_symbols:
+        info = info_dict.get(symbol)
+        price = price_dict.get(symbol)
+
+        if info and price:
+            # Calculate market cap from price * total_supply
+            market_cap = price.price * info.total_supply if info.total_supply > 0 else 0.0
+
+            result_dict[symbol] = schemas.TokenMarketInfo(
+                id=info.id,
+                name=info.name,
+                symbol=info.symbol,
+                logo_url=info.logo_url,
+                price=price.price,
+                change_24h=price.change_24h,
+                low_24h=price.low_24h,
+                high_24h=price.high_24h,
+                volume_24h=price.volume_24h,
+                market_cap=market_cap
+            )
+
+    # Return results in the same order as requested symbols (using original case)
+    return [
+        result_dict.get(s.strip().upper())
+        for s in symbols
+        if result_dict.get(s.strip().upper())
+    ]
+
+
 def _generate_predict_list(
     predict_scores: dict[str, float],
 ) -> list[schemas.TrendPair_V2]:
     predict_list = []
     token_list = [pair.split("/")[0] for pair in predict_scores.keys()]
-    token_data = _get_token_info_data(token_list)
+    # Use price cache for efficient data retrieval
+    token_data = _get_tokens_bulk(token_list)
     timestamp = int(datetime.now().timestamp() // 3600 * 3600)
     token_data_dict = {}
     for token in token_data:

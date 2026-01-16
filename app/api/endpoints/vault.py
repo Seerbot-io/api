@@ -18,6 +18,7 @@ from app.schemas.vault import (
     VaultStats,
     VaultValuesResponse,
 )
+from app.services.token_price_cache import TokenPriceCacheManager
 
 router = APIRouter()
 group_tags: List[str] = ["vault"]
@@ -60,7 +61,7 @@ def get_vaults_by_status(
       - max_drawdown: Vault max drawdown (optional)
       - start_time: Vault start time
 
-      *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
+      *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
     """
     # Validate and adjust pagination parameters
     page = max(1, page)
@@ -93,7 +94,8 @@ def get_vaults_by_status(
             vs.max_drawdown,
             v.depositing_time as start_time,
             vs.return_percent,
-            v.logo_url as icon_url
+            v.logo_url as icon_url,
+            COUNT(*) OVER() AS total_count
         from(
             select vault_id, state, tvl_usd, max_drawdown, return_percent
             FROM proddb.vault_state
@@ -132,7 +134,7 @@ def get_vaults_by_status(
                 start_time=int(row.start_time) if row.start_time else int(datetime.now().timestamp()),
             )
         )
-    total = len(vaults) + offset*limit
+    total = int(results[0].total_count) if results else 0
     return VaultListResponse(vaults=vaults, total=total, page=page, limit=limit)
 
 
@@ -161,7 +163,7 @@ def get_vault_info(
     - summary: Vault summary (optional)
     - description: Vault description (optional)
 
-    *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
+    *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
     """
     id = id.strip()
     # check if id is a valid uuid
@@ -200,6 +202,7 @@ def get_vault_info(
 )
 def get_vault_values(
     id: str,
+    currency: Optional[str] = Query('usd', description="Currency to use for closing price (usd, ada)"),
     resolution: Optional[str] = Query(None, description="Time resolution (e.g., 1d, 1w, 1m)"),
     # start_time: Optional[int] = Query(None, description="Start timestamp (Unix timestamp)"),
     # end_time: Optional[int] = Query(None, description="End timestamp (Unix timestamp)"),
@@ -214,6 +217,7 @@ def get_vault_values(
 
     Query Parameters:
     - resolution: Time resolution (e.g., 1d, 1w, 1m, default: 1d)
+    - currency: Currency to use for closing price (usd, ada, default: usd)
     - start_time: Start timestamp (Unix timestamp, optional)
     - end_time: End timestamp (Unix timestamp, optional)
     - count_back: Number of bars to return from end (default: 20)
@@ -223,7 +227,7 @@ def get_vault_values(
     - t (timestamps): List of timestamps
     - c (closing prices): List of closing prices
 
-    *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
+    *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
     """
     id = id.lower().strip()
     # check if id is a valid uuid
@@ -239,22 +243,25 @@ def get_vault_values(
     else:  # default to 1d
         resolution_seconds = 86400
     count_back = count_back if count_back else 20
-
+    if currency == 'ada':
+        closing_price_column = 'total_value_ada'
+    else:
+        closing_price_column = 'total_value_usd'
     # Build query for vault_balance_snapshots
     base_query = f"""
-        select vbs.timestamp, vbs.total_value_usd as closing_price 
+        select vbs.timestamp, vbs.{closing_price_column} as closing_price 
         from (
         select case when closed_time is not null and closed_time < EXTRACT(EPOCH FROM now())::BIGINT then closed_time
                 else EXTRACT(EPOCH FROM now())::BIGINT
             end end_time
         from proddb.vault
-        where id =  '{id}'
+        where id = '{id}'
         ) v
         JOIN proddb.vault_balance_snapshots vbs on vbs.vault_id = '{id}'
             and vbs.timestamp < v.end_time
             and vbs.timestamp > v.end_time - {count_back} * {resolution_seconds}
             and vbs.timestamp % {resolution_seconds} = 0
-        ORDER BY timestamp ASC    
+        ORDER BY timestamp ASC
     """
 
     query_sql = text(base_query)
@@ -271,7 +278,7 @@ def get_vault_values(
 
     return VaultValuesResponse(s="ok", t=timestamps, c=closing_prices)
 
-# todo: fix open_trade.value does not exist
+
 @router.get(
     "/{id}/positions",
     tags=group_tags,
@@ -302,14 +309,13 @@ def get_vault_positions(
     - total: Total number of positions
     - page: Page number
     - limit: Items per page
-    - offset: Number of items to skip
     - positions: List of positions with:
       - pair: Pair string (e.g., "ADA/USDM")
-      - direction: Direction (buy or sell)
-      - return_percent: Return percentage
-      - status: Status (open or closed)
+      - value: Current value (return_amount if closed, estimated from current prices if open)
+      - profit: Profit percentage ((return_amount - spend) / spend * 100)
+      - open_time: Position start_time
 
-    *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
+    *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
     """
     id = id.lower().strip()
     # check if id is a valid uuid
@@ -321,113 +327,122 @@ def get_vault_positions(
     if offset is None:
         offset = (page - 1) * limit
 
-    # Build status filter
+    # Build status filter based on return_amount
     status_filter = ""
     if status:
         status = status.lower().strip()
         if status == "open":
-            status_filter = "AND vtp.close_order_txn IS NULL"
+            status_filter = "AND vtp.return_amount IS NULL"
         elif status == "closed":
-            status_filter = "AND vtp.close_order_txn IS NOT NULL"
+            status_filter = "AND vtp.return_amount IS NOT NULL"
         else:
             raise HTTPException(
                 status_code=400, detail="Status must be 'open' or 'closed'"
             )
 
-    # Query to get total count
-    count_query = text(
-        f"""
-        SELECT COUNT(*) as total
-        FROM proddb.vault_trade_positions vtp
-        WHERE vtp.vault_id = '{id}' {status_filter}
-        """
-    )
-    count_result = db.execute(count_query).fetchone()
-    total = int(count_result.total) if count_result else 0
-
-    # Query positions with trade details
-    # Join with vault_trades to get pair info, direction, and prices
+    # Query positions with aggregated trade quantities and total count using window function
     positions_query = text(
         f"""
         SELECT 
             vtp.id,
             vtp.start_time,
-            vtp.update_time,
-            vtp.open_order_txn,
-            vtp.close_order_txn,
-            vtp.spend as spend_amount,
+            vtp.pair,
+            vtp.spend,
             vtp.return_amount,
-            -- Open trade details
-            open_trade.from_token as open_from_token,
-            open_trade.to_token as open_to_token,
-            open_trade.price as open_price,
-            open_trade.value as open_value,
-            open_trade.from_amount as open_from_amount,
-            open_trade.to_amount as open_to_amount,
-            -- Close trade details (if exists)
-            close_trade.price as close_price,
-            close_trade.value as close_value,
-            -- Token symbols for pair
-            from_token.symbol as from_token_symbol,
-            to_token.symbol as to_token_symbol
+            vtp.base_token_id,
+            vtp.quote_token_id,
+            -- Aggregate quantities from position_trades
+            COALESCE(SUM(pt.base_quantity), 0) as net_base_quantity,
+            COALESCE(SUM(pt.quote_quantity), 0) as net_quote_quantity,
+            -- Get token symbols
+            base_token.symbol as base_token_symbol,
+            quote_token.symbol as quote_token_symbol,
+            COUNT(*) OVER() AS total_count
         FROM proddb.vault_trade_positions vtp
-        LEFT JOIN proddb.vault_trades open_trade ON vtp.open_order_txn = open_trade.txn
-        LEFT JOIN proddb.vault_trades close_trade ON vtp.close_order_txn = close_trade.txn
-        LEFT JOIN proddb.tokens from_token ON open_trade.from_token = from_token.id
-        LEFT JOIN proddb.tokens to_token ON open_trade.to_token = to_token.id
+        LEFT JOIN proddb.position_trades pt ON vtp.id = pt.position_id
+        LEFT JOIN proddb.tokens base_token ON vtp.base_token_id = base_token.id
+        LEFT JOIN proddb.tokens quote_token ON vtp.quote_token_id = quote_token.id
         WHERE vtp.vault_id = '{id}' {status_filter}
+        GROUP BY vtp.id, vtp.start_time, vtp.pair, vtp.spend, vtp.return_amount, 
+                 vtp.base_token_id, vtp.quote_token_id, base_token.symbol, quote_token.symbol
         ORDER BY vtp.start_time DESC
         LIMIT {limit} OFFSET {offset}
         """
     )
 
     results = db.execute(positions_query).fetchall()
+    total = int(results[0].total_count) if results else 0
+
+    # Initialize token price cache manager
+    price_cache = TokenPriceCacheManager()
 
     positions = []
     for row in results:
-        # Determine status
-        position_status = "closed" if row.close_order_txn else "open"
-
-        # Build pair string (e.g., "ADA/USDM")
-        pair = ""
-        if row.from_token_symbol and row.to_token_symbol:
-            pair = f"{row.to_token_symbol}/{row.from_token_symbol}"
-        elif row.open_from_token and row.open_to_token:
+        # Get pair (use pair field from position, or construct from token symbols)
+        pair = str(row.pair) if row.pair else ""
+        if not pair and row.base_token_symbol and row.quote_token_symbol:
+            pair = f"{row.base_token_symbol}/{row.quote_token_symbol}"
+        elif not pair and row.base_token_id and row.quote_token_id:
             # Fallback to token IDs if symbols not available
-            pair = f"{row.open_to_token}/{row.open_from_token}"
+            pair = f"{row.base_token_id}/{row.quote_token_id}"
 
-        # Determine direction (buy if from_token is base, sell if to_token is base)
-        # For simplicity, we'll use the trade direction from the open trade
-        direction = "buy"  # Default, can be determined from trade logic
+        # Get spend and return amounts
+        spend = float(row.spend) if row.spend else 0.0
+        return_amount = float(row.return_amount) if row.return_amount else None
 
-        # Calculate return_percent
-        return_percent = 0.0
-        spend_amount = float(row.spend_amount) if row.spend_amount else 0.0
-        return_amount = float(row.return_amount) if row.return_amount else 0.0
-        if spend_amount > 0:
-            return_percent = ((return_amount - spend_amount) / spend_amount) * 100
+        # Calculate value
+        value = 0.0
+        if return_amount is not None:
+            # Closed position: use return_amount
+            value = return_amount
+        else:
+            # Open position: estimate value from current prices
+            net_base_qty = float(row.net_base_quantity) if row.net_base_quantity else 0.0
+            net_quote_qty = float(row.net_quote_quantity) if row.net_quote_quantity else 0.0
+            
+            base_symbol = str(row.base_token_symbol) if row.base_token_symbol else None
+            quote_symbol = str(row.quote_token_symbol) if row.quote_token_symbol else None
+            
+            # Get current prices
+            base_price = None
+            quote_price = None
+            
+            if base_symbol:
+                base_price_data = price_cache.get_token_price(base_symbol)
+                if base_price_data:
+                    base_price = base_price_data.price
+            
+            if quote_symbol:
+                quote_price_data = price_cache.get_token_price(quote_symbol)
+                if quote_price_data:
+                    quote_price = quote_price_data.price
+            
+            # Calculate value: base_quantity * base_price + quote_quantity * quote_price
+            if base_price is not None:
+                value += net_base_qty * base_price
+            if quote_price is not None:
+                value += net_quote_qty * quote_price
+            
+            # If we couldn't get prices, fall back to spend amount
+            if value == 0.0 and (base_price is None or quote_price is None):
+                value = spend
 
-        # Get prices
-        open_price = float(row.open_price) if row.open_price else 0.0
-        close_price = float(row.close_price) if row.close_price else None
-
-        # Calculate value_usd (use return_amount or current value)
-        value_usd = return_amount  # Can be improved with actual USD conversion
+        # Calculate profit percentage: (return_amount - spend) / spend * 100
+        profit = 0.0
+        if spend > 0:
+            if return_amount is not None:
+                # Closed position: use return_amount
+                profit = ((return_amount - spend) / spend) * 100
+            else:
+                # Open position: use estimated value
+                profit = ((value - spend) / spend) * 100
 
         positions.append(
             VaultPosition(
                 pair=pair,
-                direction=direction,
-                return_percent=round(return_percent, 2),
-                status=position_status,
-                spend_amount=round(spend_amount, 2),
-                value_usd=round(value_usd, 2),
-                open_price=round(open_price, 6),
-                close_price=round(close_price, 6) if close_price else None,
-                start_time=int(row.start_time) if row.start_time else 0,
-                update_time=int(row.update_time) if row.update_time else 0,
-                open_order_txn=str(row.open_order_txn) if row.open_order_txn else "",
-                close_order_txn=str(row.close_order_txn) if row.close_order_txn else None,
+                value=round(value, 2),
+                profit=round(profit, 2),
+                open_time=int(row.start_time) if row.start_time else 0,
             )
         )
 

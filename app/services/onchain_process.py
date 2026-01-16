@@ -159,7 +159,7 @@ def extract_swap_info(market_order_tx: str) -> dict:
     price_res = requests.get(
         "https://agg-api.minswap.org/aggregator/ada-price?currency=usd"
     )
-    ada_price = float(price_res.json().get("value", {"price": 1}).get("price", 1))
+    price_ada = float(price_res.json().get("value", {"price": 1}).get("price", 1))
     mo_utxos = context.api.transaction_utxos(market_order_tx)
     user = mo_utxos.inputs[0].address
 
@@ -211,9 +211,9 @@ def extract_swap_info(market_order_tx: str) -> dict:
         "token_out": token_out,
         "amount_out": amount_out,
         "price": price,
-        "value": value,  # ada_value
+        "value_ada": value,
         "fee": fee,
-        "ada_price": ada_price,
+        "price_ada": price_ada,
     }
 
 
@@ -246,7 +246,7 @@ async def _persist_swap(swap_info: dict, status: str = "completed") -> None:
                 value=swap_info.get("value"),
                 timestamp=swap_info.get("timestamp"),
                 fee=swap_info.get("fee"),
-                ada_price=swap_info.get("ada_price"),
+                price_ada=swap_info.get("price_ada"),
                 extend_data=json.dumps(
                     {
                         "order_tx_id": swap_info.get("transaction_id", ""),
@@ -316,9 +316,9 @@ async def _swap_worker():
                     "token_out": "",
                     "amount_out": 0,
                     "price": 0,
-                    "value": 0,
+                    "value_ada": 0,
                     "fee": 0,
-                    "ada_price": 0,
+                    "price_ada": 0,
                     "status": "failed",
                 }
                 await _persist_swap(swap_info, status="failed")

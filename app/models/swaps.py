@@ -33,10 +33,10 @@ class Swap(Base):
     from_amount = Column(Float)
     to_amount = Column(Float)
     price = Column(Float)
-    ada_value = Column(Float)
+    value_ada = Column(Float)
     timestamp = Column(BigInteger, nullable=False)
     fee = Column(Float)
-    ada_price = Column(Float)
+    price_ada = Column(Float)
     extend_data = Column(String(255))
     status = Column(String(50), default="pending")  # 'pending', 'completed', 'failed'
 

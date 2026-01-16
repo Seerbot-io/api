@@ -1,5 +1,3 @@
-from datetime import datetime
-from pydoc import describe
 from sqlalchemy import Column, String, Float, BigInteger, Text, ForeignKey, DateTime, Integer
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func, text
@@ -56,10 +54,11 @@ class VaultTradePosition(Base):
         "vault_id": "550e8400-e29b-41d4-a716-446655440001",
         "start_time": 1697123456,
         "update_time": 1697123500,
-        "open_order_txn": "txn123...",
-        "close_order_txn": "txn456...",
+        "pair": "USDM/ADA",
         "spend": 1000.0,
-        "return_amount": 1050.0
+        "return_amount": 1050.0,
+        "quote_token_id": "lovelace",
+        "base_token_id": "c48cbb3d5e57ed5...5553444d",
     }
     """
 
@@ -79,10 +78,11 @@ class VaultTradePosition(Base):
     )
     start_time = Column(BigInteger, nullable=False, index=True)
     update_time = Column(BigInteger, nullable=False)
-    open_order_txn = Column(String(255), nullable=False)
-    close_order_txn = Column(String(255), nullable=True)
-    spend = Column(Float, nullable=False)
-    return_amount = Column(Float, nullable=False)
+    pair = Column(String(255), nullable=True)
+    spend = Column(Float, nullable=True, default=0.0)
+    return_amount = Column(Float, nullable=True, default=0.0)
+    quote_token_id = Column(String(255), nullable=True)
+    base_token_id = Column(String(255), nullable=True)
 
 
 class VaultTrade(Base):
@@ -97,13 +97,13 @@ class VaultTrade(Base):
         "to_token": "a0028f350aaabe0545fd...",
         "from_amount": 1000.0,
         "to_amount": 500.0,
-        "ada_value": 1000.0,
+        "value_ada": 1000.0,
         "timestamp": 1697123456,
         "status": "completed",
         "price": 2.0,
         "extend_data": {"key": "value"},
         "fee": 2.5,
-        "ada_price": 0.5
+        "price_ada": 0.5
     }
     """
 
@@ -123,14 +123,49 @@ class VaultTrade(Base):
     to_token = Column(String(255), nullable=False)
     from_amount = Column(Float, nullable=False)
     to_amount = Column(Float, nullable=False)
-    ada_value = Column(Float, nullable=False)
+    value_ada = Column(Float, nullable=False)
     timestamp = Column(BigInteger, nullable=False, index=True)
     status = Column(String(50), nullable=False)
     price = Column(Float, nullable=False)
     extend_data = Column(JSONB, nullable=True)
     fee = Column(Float, default=0.0)
-    ada_price = Column(Float, nullable=False)
+    price_ada = Column(Float, nullable=False)
     
+
+
+class PositionTrade(Base):
+    """Model for position_trades table in proddb schema
+    Junction table linking vault_trade_positions to vault_trades
+    Example:
+    {
+        "position_id": "550e8400-e29b-41d4-a716-446655440000",
+        "trade_id": "txn123...",
+        "base_quantity": 100.0,
+        "quote_quantity": -1000.0,
+        "created_at": 1697123456
+    }
+    """
+
+    __tablename__ = "position_trades"
+    __table_args__ = {"schema": "proddb"}
+
+    position_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("proddb.vault_trade_positions.id"),
+        primary_key=True,
+        nullable=False,
+        index=True
+    )
+    trade_id = Column(
+        String(255),
+        ForeignKey("proddb.vault_trades.txn"),
+        primary_key=True,
+        nullable=False,
+        index=True
+    )
+    base_quantity = Column(Float, nullable=False)
+    quote_quantity = Column(Float, nullable=False)
+    created_at = Column(BigInteger, nullable=False, index=True)
 
 
 class TradeStrategy(Base):

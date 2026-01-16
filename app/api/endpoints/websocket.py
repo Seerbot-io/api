@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 
-from app.api.endpoints.analysis import TIMEFRAME_DURATION_MAP, _get_token_info_data, SUPPORTED_RESOLUTIONS, get_chart_data
+from app.api.endpoints.analysis import TIMEFRAME_DURATION_MAP, SUPPORTED_RESOLUTIONS, get_chart_data, _get_tokens_bulk
 from app.api.endpoints.user import _get_notices
 from app.core.router_decorated import APIRouter
 from app.schemas.notice import NoticeListResponse
@@ -488,14 +488,14 @@ async def handle_token_info(
     # Normalize symbol
     symbol = symbol.strip().upper()
     try:
-        token_data = _get_token_info_data([symbol])  # have cache
+        token_data_list = _get_tokens_bulk([symbol])  # have cache
         # Return update data
-        if token_data is None or len(token_data) == 0:
+        if token_data_list is None or len(token_data_list) == 0:
             await websocket.send_json(
                 {"error": "Token not found", "channel": subscription.channel}
             )
             return None
-        token = token_data[0]
+        token = token_data_list[0]
         result = {
             "channel": subscription.channel,
             "type": "token_info",
@@ -555,13 +555,12 @@ async def handle_notices(
 
     try:
         # Get notices
-        notice_responses = _get_notices(
+        notice_responses, total = _get_notices(
             type=notice_type,
             limit=limit,
             order=order,
             after_id=last_notice_id,
         )
-        total = len(notice_responses)
 
         # Update last_notice_id if we got new notices
         if total > 0:

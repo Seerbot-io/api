@@ -53,41 +53,76 @@ def _get_notices(
     offset: Optional[int] = 0,
     order: str = "desc",
     after_id: Optional[int] = None,
-) -> List[NoticeResponse]:
+) -> tuple[List[NoticeResponse], int]:
     # Filter by type if provided
     db = SessionLocal()
-    query = db.query(Notice)
+    
+    # Build WHERE clause
+    where_clauses = []
     if type:
         allowed_types = ["info", "account", "signal", "all"]
         if type not in allowed_types:
             type = "all"
         if type != "all":
-            query = query.filter(Notice.type == type)
-    if order == "desc":
-        if after_id:
-            query = query.filter(Notice.id < after_id)
-        query = query.order_by(Notice.id.desc())
-    elif order == "asc":
-        if after_id:
-            query = query.filter(Notice.id > after_id)
-        query = query.order_by(Notice.id.asc())
-    notices = query.offset(offset).limit(limit).all()
+            where_clauses.append(f"type = '{type}'")
+    
+    if after_id:
+        if order == "desc":
+            where_clauses.append(f"id < {after_id}")
+        elif order == "asc":
+            where_clauses.append(f"id > {after_id}")
+    
+    where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
+    
+    # Build ORDER BY clause
+    order_sql = "DESC" if order == "desc" else "ASC"
+    
+    # Build LIMIT and OFFSET clause
+    limit_offset_sql = ""
+    if limit:
+        limit_offset_sql = f"LIMIT {limit}"
+    if offset:
+        limit_offset_sql += f" OFFSET {offset}" if limit_offset_sql else f"OFFSET {offset}"
+    
+    # Query with COUNT(*) OVER() to get total count in one query
+    query_sql = text(
+        f"""
+        SELECT 
+            id,
+            type,
+            icon,
+            title,
+            message,
+            created_at,
+            updated_at,
+            meta_data,
+            COUNT(*) OVER() AS total_count
+        FROM chatbot.notice
+        WHERE {where_sql}
+        ORDER BY id {order_sql}
+        {limit_offset_sql}
+        """
+    )
+    
+    results = db.execute(query_sql).fetchall()
+    total = int(results[0].total_count) if results else 0
+    
     # Convert to response models
     notice_responses = [
         NoticeResponse(
-            id=cast(int, notice.id),
-            type=cast(str, notice.type),
-            icon=cast(Optional[str], notice.icon),
-            title=cast(str, notice.title),
-            message=cast(str, notice.message),
-            created_at=cast(datetime, notice.created_at),
-            updated_at=cast(datetime, notice.updated_at),
-            meta_data=cast(Optional[Dict[str, Any]], notice.meta_data),
+            id=cast(int, row.id),
+            type=cast(str, row.type),
+            icon=cast(Optional[str], row.icon),
+            title=cast(str, row.title),
+            message=cast(str, row.message),
+            created_at=cast(datetime, row.created_at),
+            updated_at=cast(datetime, row.updated_at),
+            meta_data=cast(Optional[Dict[str, Any]], row.meta_data),
         )
-        for notice in notices
+        for row in results
     ]
     db.close()
-    return notice_responses
+    return notice_responses, total
 
 
 @router.get(
@@ -140,8 +175,7 @@ def get_notices(
     """
     type = type.lower().strip() if type else "all"
     order = order.lower().strip() if order else "desc"
-    notice_responses = _get_notices(type, limit, offset, order, after_id)
-    total = len(notice_responses)
+    notice_responses, total = _get_notices(type, limit, offset, order, after_id)
     return NoticeListResponse(
         notices=notice_responses,
         total=total,
@@ -159,9 +193,7 @@ def get_notices(
 )
 def get_vault_earnings(
     wallet_address: str = Query(
-        "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm",
-        # ...,
-         description="Wallet address of the user (required)"
+        ..., description="Wallet address of the user (required)"
     ),
     limit: int = Query(default=20, ge=1, le=100, description="Maximum number of earnings to return"),
     offset: int = Query(default=0, ge=0, description="Number of earnings to skip for pagination"),
@@ -181,18 +213,7 @@ def get_vault_earnings(
     *Sample wallet address:* addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm
     """
     wallet_address = wallet_address.strip().lower()
-    # Get total count
-    count_sql = text(
-        f"""
-        SELECT COUNT(*) as total
-        FROM proddb.user_earnings
-        WHERE wallet_address = '{wallet_address}' AND current_value > 0
-        """
-    )
-    total_result = db.execute(count_sql).fetchone()
-    total = int(total_result.total) if total_result else 0
-
-    # Fetch user earnings with vault info
+    # Fetch user earnings with vault info and total count in one query
     data_sql = text(
         f"""
         SELECT 
@@ -201,7 +222,8 @@ def get_vault_earnings(
             v.address as vault_address,
             ue.total_deposit,
             ue.total_withdrawal,
-            ue.current_value
+            ue.current_value,
+            COUNT(*) OVER() AS total_count
         FROM proddb.user_earnings ue
         JOIN proddb.vault v ON ue.vault_id = v.id
         WHERE ue.wallet_address = '{wallet_address}' AND ue.current_value > 0
@@ -210,6 +232,7 @@ def get_vault_earnings(
         """
     )
     earnings_data = db.execute(data_sql).fetchall()
+    total = int(earnings_data[0].total_count) if earnings_data else 0
 
     # Convert to earnings format
     earnings = []
@@ -284,18 +307,7 @@ def get_user_swaps(
     limit = max(1, min(100, limit))
     offset = (page - 1) * limit
 
-    # Get total count
-    count_sql = text(
-        f"""
-        SELECT COUNT(*) as total
-        FROM proddb.swap_transactions
-        WHERE status = 'completed' AND wallet_address = '{wallet_address}'
-        """
-    )
-    total_result = db.execute(count_sql).fetchone()
-    total = int(total_result.total) if total_result else 0
-
-    # Fetch paginated swaps
+    # Fetch paginated swaps with total count in one query
     data_sql = text(
         f"""
         SELECT 
@@ -304,7 +316,8 @@ def get_user_swaps(
             to_token,
             from_amount,
             to_amount,
-            timestamp
+            timestamp,
+            COUNT(*) OVER() AS total_count
         FROM proddb.swap_transactions
         WHERE status = 'completed' AND wallet_address = '{wallet_address}'
         ORDER BY timestamp DESC
@@ -312,6 +325,7 @@ def get_user_swaps(
         """
     )
     swaps = db.execute(data_sql).fetchall()
+    total = int(swaps[0].total_count) if swaps else 0
 
     # Get unique token symbols
     token_symbols = set()
@@ -374,8 +388,7 @@ def get_user_swaps(
 )
 def get_vault_transactions(
     wallet_address: str = Query(
-        # ..., description="Wallet address of the user (required)"
-        "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm", description="Wallet address of the user (required)"
+        ..., description="Wallet address of the user (required)"
     ),
     vault_id: Optional[int] = Query(
         default=None, description="Filter by vault ID (optional)"
@@ -411,18 +424,7 @@ def get_vault_transactions(
     if vault_id is not None:
         where_clause += f" AND vl.vault_id = {vault_id}"
 
-    # Get total count
-    count_sql = text(
-        f"""
-        SELECT COUNT(*) as total
-        FROM proddb.vault_logs vl
-        WHERE {where_clause}
-        """
-    )
-    total_result = db.execute(count_sql).fetchone()
-    total = int(total_result.total) if total_result else 0
-
-    # Fetch paginated vault logs
+    # Fetch paginated vault logs with total count in one query
     data_sql = text(
         f"""
         SELECT 
@@ -436,7 +438,8 @@ def get_vault_transactions(
             vl.txn,
             vl.timestamp,
             vl.status,
-            vl.fee
+            vl.fee,
+            COUNT(*) OVER() AS total_count
         FROM proddb.vault_logs vl
         LEFT JOIN proddb.vault v ON vl.vault_id = v.id
         WHERE {where_clause}
@@ -445,6 +448,7 @@ def get_vault_transactions(
         """
     )
     transactions = db.execute(data_sql).fetchall()
+    total = int(transactions[0].total_count) if transactions else 0
 
     # Get unique token IDs
     token_ids = set()
