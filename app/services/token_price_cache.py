@@ -31,6 +31,7 @@ class CachedTokenInfo:
 class CachedTokenPrice:
     """Token price and 24h statistics"""
     price: float
+    price_on_ada: float
     change_24h: float
     low_24h: float
     high_24h: float
@@ -78,12 +79,10 @@ class TokenPriceCacheManager:
         self._ada_price_ttl = 30  # 30 seconds TTL for ADA price
         
         # Configuration from settings
-        self._info_ttl = getattr(settings, "TOKEN_CACHE_INFO_TTL", 3600)
-        self._price_ttl = getattr(settings, "TOKEN_CACHE_PRICE_TTL", 30)
-        self._refresh_interval = getattr(settings, "TOKEN_CACHE_REFRESH_INTERVAL", 15)
-        self._enable_background_refresh = getattr(
-            settings, "TOKEN_CACHE_ENABLE_BACKGROUND_REFRESH", False
-        )
+        self._info_ttl = settings.TOKEN_CACHE_INFO_TTL
+        self._price_ttl = settings.TOKEN_CACHE_PRICE_TTL
+        self._refresh_interval = settings.TOKEN_CACHE_REFRESH_INTERVAL
+        self._enable_background_refresh = settings.TOKEN_CACHE_ENABLE_BACKGROUND_REFRESH
         
         # Thread safety
         self._cache_lock = threading.RLock()
@@ -285,6 +284,7 @@ class TokenPriceCacheManager:
                     
                     result["ADA"] = CachedTokenPrice(
                         price=price_ada,
+                        price_on_ada=1.0,
                         change_24h=change_24h,
                         low_24h=low_24h_usd,
                         high_24h=high_24h_usd,
@@ -351,6 +351,7 @@ class TokenPriceCacheManager:
                         
                         result[symbol] = CachedTokenPrice(
                             price=price_usd,
+                            price_on_ada=price_ada_token,
                             change_24h=change_24h,
                             low_24h=low_24h_usd,
                             high_24h=high_24h_usd,
@@ -429,14 +430,14 @@ class TokenPriceCacheManager:
         if quote == "ADA":
             price_data = self.get_token_price(base)
             if price_data:
-                return price_data.price
+                return price_data.price_on_ada
             return None
         
         # Case 2: Inverted pair (ADA/TOKEN) - return 1/price
         if base == "ADA":
             price_data = self.get_token_price(quote)
-            if price_data and price_data.price > 0:
-                return 1.0 / price_data.price
+            if price_data and price_data.price_on_ada > 0:
+                return 1.0 / price_data.price_on_ada
             return None
         
         # Case 3: Cross pair (TOKEN1/TOKEN2) - calculate from both prices
@@ -445,8 +446,8 @@ class TokenPriceCacheManager:
         quote_price_data = self.get_token_price(quote)
         
         if base_price_data and quote_price_data:
-            base_price = base_price_data.price
-            quote_price = quote_price_data.price
+            base_price = base_price_data.price_on_ada
+            quote_price = quote_price_data.price_on_ada
             
             if quote_price > 0:
                 return base_price / quote_price

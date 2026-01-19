@@ -46,8 +46,8 @@ class Vault(Base):
     closed_time = Column(BigInteger, nullable=True)
     summary = Column(String(255), nullable=True)
 
-class VaultTradePosition(Base):
-    """Model for vault_trade_positions table in proddb schema
+class VaultPosition(Base):
+    """Model for vault_positions table in proddb schema
     Example:
     {
         "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -62,7 +62,7 @@ class VaultTradePosition(Base):
     }
     """
 
-    __tablename__ = "vault_trade_positions"
+    __tablename__ = "vault_positions"
     __table_args__ = {"schema": "proddb"}
 
     id = Column(
@@ -80,62 +80,15 @@ class VaultTradePosition(Base):
     update_time = Column(BigInteger, nullable=False)
     pair = Column(String(255), nullable=True)
     spend = Column(Float, nullable=True, default=0.0)
+    current_asset = Column(Text, nullable=True, default='{}')
     return_amount = Column(Float, nullable=True, default=0.0)
     quote_token_id = Column(String(255), nullable=True)
-    base_token_id = Column(String(255), nullable=True)
+    # base_token_id = Column(String(255), nullable=True)
 
 
-class VaultTrade(Base):
-    """Model for vault_trades table in proddb schema
-    Example:
-    {
-        "txn": "txn123...",
-        "vault_id": "550e8400-e29b-41d4-a716-446655440001",
-        "sender": "addr1...",
-        "receiver": "addr2...",
-        "from_token": "lovelace",
-        "to_token": "a0028f350aaabe0545fd...",
-        "from_amount": 1000.0,
-        "to_amount": 500.0,
-        "value_ada": 1000.0,
-        "timestamp": 1697123456,
-        "status": "completed",
-        "price": 2.0,
-        "extend_data": {"key": "value"},
-        "fee": 2.5,
-        "price_ada": 0.5
-    }
-    """
-
-    __tablename__ = "vault_trades"
-    __table_args__ = {"schema": "proddb"}
-
-    txn = Column(String(255), primary_key=True)
-    vault_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("proddb.vault.id"),
-        nullable=False,
-        index=True
-    )
-    sender = Column(String(255), nullable=False)
-    receiver = Column(String(255), nullable=False)
-    from_token = Column(String(255), nullable=False)
-    to_token = Column(String(255), nullable=False)
-    from_amount = Column(Float, nullable=False)
-    to_amount = Column(Float, nullable=False)
-    value_ada = Column(Float, nullable=False)
-    timestamp = Column(BigInteger, nullable=False, index=True)
-    status = Column(String(50), nullable=False)
-    price = Column(Float, nullable=False)
-    extend_data = Column(JSONB, nullable=True)
-    fee = Column(Float, default=0.0)
-    price_ada = Column(Float, nullable=False)
-    
-
-
-class PositionTrade(Base):
-    """Model for position_trades table in proddb schema
-    Junction table linking vault_trade_positions to vault_trades
+class VaultPositionTxn(Base):
+    """Model for vault_pos_txn table in proddb schema
+    Junction table linking vault_positions to vault_pos_txn
     Example:
     {
         "position_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -146,19 +99,19 @@ class PositionTrade(Base):
     }
     """
 
-    __tablename__ = "position_trades"
+    __tablename__ = "vault_pos_txn"
     __table_args__ = {"schema": "proddb"}
 
     position_id = Column(
         UUID(as_uuid=False),
-        ForeignKey("proddb.vault_trade_positions.id"),
+        ForeignKey("proddb.vault_positions.id"),
         primary_key=True,
         nullable=False,
         index=True
     )
     trade_id = Column(
         String(255),
-        ForeignKey("proddb.vault_trades.txn"),
+        ForeignKey("proddb.swap_transactions.txn"),
         primary_key=True,
         nullable=False,
         index=True
@@ -196,17 +149,6 @@ class TradeStrategy(Base):
     quote_token_id = Column(String(255), nullable=False)
     base_token_id = Column(String(255), nullable=False)
     source_script = Column(Text, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
-    )
 
 
 class VaultBalanceSnapshot(Base):
@@ -236,11 +178,6 @@ class VaultBalanceSnapshot(Base):
     asset = Column(JSONB, nullable=False)  # JSON data about token amount, price in USD
     total_value = Column(Float, nullable=False)
     total_value_usd = Column(Float, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
 
 
 class VaultState(Base):
@@ -264,7 +201,6 @@ class VaultState(Base):
         "win_rate": 70.0,
         "avg_profit_per_winning_trade_pct": 2.5,
         "avg_loss_per_losing_trade_pct": -1.0,
-        "avg_trade_duration": 3600.0,
         "total_fees_paid": 50.0
     }
     """
@@ -295,7 +231,6 @@ class VaultState(Base):
     win_rate = Column(Float, default=0.0)
     avg_profit_per_winning_trade_pct = Column(Float, default=0.0)
     avg_loss_per_losing_trade_pct = Column(Float, default=0.0)
-    avg_trade_duration = Column(Float, default=0.0)
     total_fees_paid = Column(Float, default=0.0)
 
 

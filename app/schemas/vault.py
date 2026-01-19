@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.schemas.my_base_model import CustomBaseModel
 
@@ -30,12 +30,20 @@ class VaultListResponse(CustomBaseModel):
 class VaultInfo(CustomBaseModel):
     """Vault info for /vaults/{id}/info endpoint"""
 
+    id: str = ""  # uuid
+    state: str = ""  # accepting_deposits, trading, settled, closed
     icon_url: Optional[str] = None
     vault_name: str = ""
     vault_type: str = "Seerbot Vault"
     blockchain: str = "Cardano"
     address: str = ""
     summary: Optional[str] = None
+    annual_return: float = 0.0
+    tvl_usd: float = 0.0
+    max_drawdown: float = 0.0
+    start_time: Optional[int] = None
+    trade_per_month: float = 0.0  # Average transactions per month f:.2
+    decision_cycle: Optional[str] = None  # Decision cycle from trade strategy
     description: Optional[str] = None  # HTML text
 
 
@@ -64,18 +72,28 @@ class VaultStats(CustomBaseModel):
     win_rate: float = 0.0
     avg_profit_per_winning_trade_pct: float = 0.0
     avg_loss_per_losing_trade_pct: float = 0.0
-    avg_trade_duration: float = 0.0
     total_fees_paid: float = 0.0
+    decision_cycle: Optional[str] = None  # Decision cycle from trade strategy
+    trade_per_month: float = 0.0  # Average transactions per month f:.2
 
+    @field_validator("trade_per_month")
+    def round_fields(cls, v: float) -> float:
+        return round(v, 2)
 
+    
 class VaultPosition(CustomBaseModel):
     """Vault position for /vaults/{id}/positions endpoint"""
 
     pair: str = ""  # e.g., "ADA/USDM"
+    spend: float = 0.0  # spend amount
     value: float = 0.0  # current value (return_amount if closed, estimated from current prices if open)
-    profit: float = 0.0  # profit percentage: (return_amount - spend) / spend * 100
     open_time: int = 0  # position start_time
-
+    status: str = ""  # "open" or "closed"
+    profit: float = 0.0  # profit percentage: (value - spend) / spend * 100
+    
+    @field_validator("spend", "value", "profit")
+    def round_fields(cls, v: float) -> float:
+        return round(v, 2)
 
 class VaultPositionsResponse(CustomBaseModel):
     """Response model for vault positions list"""

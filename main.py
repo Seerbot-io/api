@@ -1,5 +1,6 @@
 import os
 import secrets
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -25,6 +26,18 @@ from app.api.endpoints import (
 from app.core.config import settings
 from app.services import price_cache
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events"""
+    # Startup
+    if settings.TOKEN_CACHE_ENABLE_BACKGROUND_REFRESH:
+        price_cache.start_background_refresh()
+    yield
+    # Shutdown
+    price_cache.stop_background_refresh()
+
+
 # Define the FastAPI application instance
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -32,6 +45,7 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
+    lifespan=lifespan,
 )
 
 # Cache configuration is now done via @cache decorator on individual endpoints
@@ -126,19 +140,6 @@ app.include_router(websocket.router)
 app.include_router(market.router, prefix="/market")
 app.include_router(user.router, prefix="/user")
 app.include_router(vault.router, prefix="/vaults")
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup"""
-    if settings.TOKEN_CACHE_ENABLE_BACKGROUND_REFRESH:
-        price_cache.start_background_refresh()
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    price_cache.stop_background_refresh()
 
 
 if __name__ == "__main__":
