@@ -507,6 +507,7 @@ def get_vault_positions(
       - value: Current value (value if closed, estimated from current prices if open)
       - profit: Profit percentage: (value - spend) / spend * 100
       - open_time: Position start_time
+      - close_time: Position close_time
       - status: Position status ("open" or "closed")
 
     *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
@@ -540,6 +541,7 @@ def get_vault_positions(
         SELECT 
             vtp.id,
             vtp.start_time,
+            vtp.update_time,
             vtp.pair,
             vtp.spend,
             vtp.return_amount,
@@ -604,6 +606,7 @@ def get_vault_positions(
                 value=value,
                 profit=profit,
                 open_time=int(row.start_time) if row.start_time else 0,
+                close_time=int(row.update_time) if position_status == "closed" else None,
                 status=position_status,
             )
         )

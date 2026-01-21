@@ -91,6 +91,7 @@ class VaultPosition(CustomBaseModel):
     spend: float = 0.0  # spend amount
     value: float = 0.0  # current value (return_amount if closed, estimated from current prices if open)
     open_time: int = 0  # position start_time
+    close_time: Optional[int] = None  # position close_time
     status: str = ""  # "open" or "closed"
     profit: float = 0.0  # profit percentage: (value - spend) / spend * 100
     
