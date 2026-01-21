@@ -26,6 +26,7 @@ SWAP_RETRY_SLEEP_SECONDS = 15
 SWAP_WARN_THRESHOLD = 20
 swap_queue: asyncio.Queue[tuple[str, float]] = asyncio.Queue()
 swap_worker_task: asyncio.Task | None = None
+swap_queue_tx_ids: set[str] = set()  # Track tx_ids in queue to avoid duplicates
 
 
 # not use
@@ -219,7 +220,58 @@ def extract_swap_info(market_order_tx: str) -> dict:
 
 async def add_swap_to_queue(order_tx_id: str) -> None:
     """Add a swap order tx ID to the processing queue."""
-    global swap_queue, swap_worker_task
+    global swap_queue, swap_worker_task, swap_queue_tx_ids
+    
+    # Check if tx_id already exists in queue
+    if order_tx_id in swap_queue_tx_ids:
+        print(f"[swap-queue] skip: {order_tx_id} already in queue")
+        return
+    
+    # Check if already completed in DB
+    def _check_db():
+        db = SessionLocal()
+        try:
+            existing = db.query(Swap).filter(Swap.transaction_id == order_tx_id).first()
+            if existing and existing.status == "completed":
+                return True
+            return False
+        finally:
+            db.close()
+    
+    loop = asyncio.get_running_loop()
+    is_completed = await loop.run_in_executor(None, _check_db)
+    if is_completed:
+        print(f"[swap-queue] skip: {order_tx_id} already completed in DB")
+        return
+    
+    # Add to queue tracking set
+    swap_queue_tx_ids.add(order_tx_id)
+    
+    # Write to DB with status pending
+    current_timestamp = int(time.time())
+    user = ""
+    try:
+        mo_utxos = context.api.transaction_utxos(order_tx_id)
+        user = mo_utxos.inputs[0].address
+    except Exception as e:
+        print(f"[swap-queue] error getting user: {e}")
+    pending_swap_info = {
+        "transaction_id": order_tx_id,
+        "execution_tx_id": "",
+        "user": user,
+        "token_in": "",
+        "amount_in": 0,
+        "token_out": "",
+        "amount_out": 0,
+        "price": 0,
+        "value_ada": 0,
+        "fee": 0,
+        "price_ada": 0,
+        "timestamp": current_timestamp,
+    }
+    await _persist_swap(pending_swap_info, status="pending")
+    
+    # Add to queue
     await swap_queue.put((order_tx_id, time.time()))
     queue_size = swap_queue.qsize()
     if queue_size >= SWAP_WARN_THRESHOLD:
@@ -283,7 +335,7 @@ async def _process_swap_item(order_tx_id: str, received_at: float) -> bool:
 
 async def _swap_worker():
     """Drain the swap queue until empty, then stop."""
-    global swap_worker_task
+    global swap_worker_task, swap_queue_tx_ids
     while True:
         try:
             order_tx_id, received_at = swap_queue.get_nowait()
@@ -296,10 +348,14 @@ async def _swap_worker():
             success = await _process_swap_item(order_tx_id, received_at)
         finally:
             swap_queue.task_done()
+            # Remove from tracking set when done processing (success or fail)
+            swap_queue_tx_ids.discard(order_tx_id)
 
         if not success:
             age = time.time() - received_at
             if age <= SWAP_RETRY_MAX_AGE_SECONDS:
+                # Re-add to tracking set when requeuing
+                swap_queue_tx_ids.add(order_tx_id)
                 await swap_queue.put((order_tx_id, received_at))
                 print(
                     f"[swap-queue] requeue {order_tx_id} (age={age:.1f}s), sleeping {SWAP_RETRY_SLEEP_SECONDS}s"
