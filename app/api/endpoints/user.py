@@ -256,7 +256,7 @@ def get_vault_earnings(
 
         earnings.append(
             VaultEarning(
-                vault_id=int(earning.vault_id),
+                vault_id=earning.vault_id,
                 vault_name=str(earning.vault_name) if earning.vault_name else "",
                 vault_address=str(earning.vault_address) if earning.vault_address else "",
                 total_deposit=round(total_deposit, 2),
@@ -390,7 +390,7 @@ def get_vault_transactions(
     wallet_address: str = Query(
         ..., description="Wallet address of the user (required)"
     ),
-    vault_id: Optional[int] = Query(
+    vault_id: Optional[str] = Query(
         default=None, description="Filter by vault ID (optional)"
     ),
     page: int = Query(default=1, ge=1, description="Page number (default: 1)"),
@@ -470,8 +470,8 @@ def get_vault_transactions(
 
         transaction_data.append(
             VaultTransaction(
-                id=int(transaction.id),
-                vault_id=int(transaction.vault_id),
+                id=transaction.id,
+                vault_id=transaction.vault_id,
                 vault_name=transaction.vault_name,
                 wallet_address=str(transaction.wallet_address),
                 action=str(transaction.action),
