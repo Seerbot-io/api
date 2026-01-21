@@ -135,9 +135,9 @@ class TokenList(CustomBaseModel):
 
 class SwapCreate(CustomBaseModel):
     order_tx_id: str = ""
-    execution_tx_id: Optional[str] = None
-    from_token: Optional[str] = None
-    to_token: Optional[str] = None
+    # execution_tx_id: Optional[str] = None
+    # from_token: Optional[str] = None
+    # to_token: Optional[str] = None
 
     @field_validator("order_tx_id")
     def validate_tx_id(cls, v: str) -> str:
