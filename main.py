@@ -128,6 +128,17 @@ async def unified_websocket_test_page():
     raise HTTPException(status_code=404, detail="Unified WebSocket test page not found")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Serve the favicon"""
+    favicon_path = os.path.join(
+        os.path.dirname(__file__), "static", "images", "favicon.ico"
+    )
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path, media_type="image/x-icon")
+    raise HTTPException(status_code=404, detail="Favicon not found")
+
+
 # Include your API routers
 # version control rule: V{main}.{minor}.{patch}
 #  - Main file will only control main version

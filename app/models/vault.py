@@ -19,7 +19,7 @@ class Vault(Base):
         "stop_time": null,
         "status": "active",
         "summary": "USDM trading vault"
-        settled_time": 1697123456,
+        "withdrawal_time": 1697123456,
         "closed_time": 1697123456,
     }
     """
@@ -42,7 +42,7 @@ class Vault(Base):
     trading_time = Column(BigInteger, nullable=True)
     status = Column(String(50), default="active")
     description = Column(Text, nullable=True)
-    settled_time = Column(BigInteger, nullable=True)
+    withdrawal_time = Column(BigInteger, nullable=True)
     closed_time = Column(BigInteger, nullable=True)
     summary = Column(String(255), nullable=True)
 
@@ -217,7 +217,7 @@ class VaultState(Base):
     )
     vault_address = Column(String(255), nullable=False)
     update_time = Column(BigInteger, nullable=False, index=True)
-    state = Column(String(50), nullable=False)  # accepting_deposits, trading, settled, closed
+    state = Column(String(50), nullable=False)  # open, trading, withdrawable, closed
     tvl_usd = Column(Float, default=0.0)
     max_drawdown = Column(Float, default=0.0)
     trade_start_time = Column(BigInteger, nullable=True)

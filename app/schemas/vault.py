@@ -2,13 +2,14 @@ from typing import List, Optional
 
 from pydantic import Field, field_validator
 
+from app.core.config import settings
 from app.schemas.my_base_model import CustomBaseModel
 
 
 class VaultListItem(CustomBaseModel):
     """Vault list item for /vaults/{status} endpoint"""
     id: str = ""  # uuid
-    state: str = ""  # accepting_deposits, trading, settled, closed
+    state: str = ""  # open, trading, withdrawable, closed
     icon_url: Optional[str] = None
     vault_name: str = ""
     summary: Optional[str] = None
@@ -31,11 +32,13 @@ class VaultInfo(CustomBaseModel):
     """Vault info for /vaults/{id}/info endpoint"""
 
     id: str = ""  # uuid
-    state: str = ""  # accepting_deposits, trading, settled, closed
+    state: str = ""  # open, trading, withdrawable, closed
     icon_url: Optional[str] = None
     vault_name: str = ""
     vault_type: str = "Seerbot Vault"
+    vault_type_logo: str = settings.HOST + '/static/images/Seerbot.png'
     blockchain: str = "Cardano"
+    blockchain_logo: str = settings.HOST + '/static/images/Cardano_icon.png'
     address: str = ""
     summary: Optional[str] = None
     annual_return: float = 0.0
@@ -58,7 +61,7 @@ class VaultValuesResponse(CustomBaseModel):
 class VaultStats(CustomBaseModel):
     """Vault statistics for /vaults/{id}/stats endpoint"""
 
-    state: str = ""  # accepting_deposits, trading, settled, closed
+    state: str = ""  # open, trading, withdrawable, closed
     tvl_usd: float = 0.0
     max_drawdown: float = 0.0
     trade_start_time: Optional[int] = None

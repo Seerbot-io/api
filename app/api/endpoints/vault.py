@@ -52,7 +52,7 @@ def _get_vaults(
     elif status_norm == "inactive":
         state_filter = "where state in ('closed')"
     else:  # default active
-        state_filter = "where state in ('accepting_deposits', 'trading', 'settled')"
+        state_filter = "where state in ('open', 'trading', 'withdrawable')"
     id_filter = f"AND v.id = '{vid}'" if vid else ""
     limit_sql = "LIMIT 1" if vid else f"LIMIT {limit} OFFSET {offset}"
 
@@ -62,9 +62,9 @@ def _get_vaults(
             v.id,
             CASE
                 WHEN vs.state IS NOT NULL THEN vs.state
-                WHEN extract(epoch from now()) < v.trading_time THEN 'accepting_deposits'
-                WHEN extract(epoch from now()) < v.settled_time THEN 'trading'
-                WHEN extract(epoch from now()) < v.closed_time THEN 'settled'
+                WHEN extract(epoch from now()) < v.trading_time THEN 'open'
+                WHEN extract(epoch from now()) < v.withdrawal_time THEN 'trading'
+                WHEN extract(epoch from now()) < v.closed_time THEN 'withdrawable'
                 ELSE 'closed'
             END AS state,
             v.name AS vault_name,
@@ -220,7 +220,7 @@ def get_vaults_by_status(
 
     Query Parameters:
     - status: active, inactive, or all (default: active)
-      - active: returns vaults with state 'accepting_deposits', 'trading', or 'settled'
+      - active: returns vaults with state 'open', 'trading', or 'withdrawable'
       - inactive: returns vaults with state 'closed'
       - all: returns all vaults
 
@@ -288,7 +288,9 @@ def get_vault_info(
     - icon_url: Vault icon URL (optional)
     - vault_name: Vault name
     - vault_type: Vault type
+    - vault_type_logo: Vault type logo URL (optional)
     - blockchain: Blockchain
+    - blockchain_logo: Blockchain logo URL (optional)
     - address: Vault address
     - summary: Vault summary (optional)
     - description: Vault description (optional)
