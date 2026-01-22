@@ -3,6 +3,7 @@
 import asyncio
 import time
 import json
+from typing import Optional
 
 from psycopg2 import IntegrityError
 import requests
@@ -24,7 +25,9 @@ MINSWAP_V2_POOL_CONTRACT = "addr1z84q0denmyep98ph3tmzwsmw0j7zau9ljmsqx6a4rvaau66
 SWAP_RETRY_MAX_AGE_SECONDS = 120
 SWAP_RETRY_SLEEP_SECONDS = 15
 SWAP_WARN_THRESHOLD = 20
-swap_queue: asyncio.Queue[tuple[str, float]] = asyncio.Queue()
+swap_queue: asyncio.Queue[tuple[str, float, Optional[str]]] = (
+    asyncio.Queue()
+)  # (order_tx_id, received_at, user)
 swap_worker_task: asyncio.Task | None = None
 swap_queue_tx_ids: set[str] = set()  # Track tx_ids in queue to avoid duplicates
 
@@ -156,13 +159,14 @@ def extract_swap_info_v0(
     }
 
 
-def extract_swap_info(market_order_tx: str) -> dict:
+def extract_swap_info(market_order_tx: str, user: Optional[str] = None) -> dict:
     price_res = requests.get(
         "https://agg-api.minswap.org/aggregator/ada-price?currency=usd"
     )
     price_ada = float(price_res.json().get("value", {"price": 1}).get("price", 1))
-    mo_utxos = context.api.transaction_utxos(market_order_tx)
-    user = mo_utxos.inputs[0].address
+    if user is None:
+        mo_utxos = context.api.transaction_utxos(market_order_tx)
+        user = mo_utxos.inputs[0].address
 
     url = "https://monorepo-mainnet-prod.minswap.org/aggregator/orders"
     body = {
@@ -218,15 +222,15 @@ def extract_swap_info(market_order_tx: str) -> dict:
     }
 
 
-async def add_swap_to_queue(order_tx_id: str) -> None:
+async def add_swap_to_queue(order_tx_id: str, user: Optional[str] = None) -> None:
     """Add a swap order tx ID to the processing queue."""
     global swap_queue, swap_worker_task, swap_queue_tx_ids
-    
+
     # Check if tx_id already exists in queue
     if order_tx_id in swap_queue_tx_ids:
         print(f"[swap-queue] skip: {order_tx_id} already in queue")
         return
-    
+
     # Check if already completed in DB
     def _check_db():
         db = SessionLocal()
@@ -237,28 +241,28 @@ async def add_swap_to_queue(order_tx_id: str) -> None:
             return False
         finally:
             db.close()
-    
+
     loop = asyncio.get_running_loop()
     is_completed = await loop.run_in_executor(None, _check_db)
     if is_completed:
         print(f"[swap-queue] skip: {order_tx_id} already completed in DB")
         return
-    
+
     # Add to queue tracking set
     swap_queue_tx_ids.add(order_tx_id)
-    
+
     # Write to DB with status pending
     current_timestamp = int(time.time())
-    user = ""
-    try:
-        mo_utxos = context.api.transaction_utxos(order_tx_id)
-        user = mo_utxos.inputs[0].address
-    except Exception as e:
-        print(f"[swap-queue] error getting user: {e}")
+    if user is None:
+        try:
+            mo_utxos = context.api.transaction_utxos(order_tx_id)
+            user = mo_utxos.inputs[0].address
+        except Exception as e:
+            print(f"[swap-queue] error getting user: {e}")
     pending_swap_info = {
         "transaction_id": order_tx_id,
         "execution_tx_id": "",
-        "user": user,
+        "user": user or "",
         "token_in": "",
         "amount_in": 0,
         "token_out": "",
@@ -270,9 +274,9 @@ async def add_swap_to_queue(order_tx_id: str) -> None:
         "timestamp": current_timestamp,
     }
     await _persist_swap(pending_swap_info, status="pending")
-    
+
     # Add to queue
-    await swap_queue.put((order_tx_id, time.time()))
+    await swap_queue.put((order_tx_id, time.time(), user))
     queue_size = swap_queue.qsize()
     if queue_size >= SWAP_WARN_THRESHOLD:
         print(f"[swap-queue] warning: queue size {queue_size} exceeds threshold")
@@ -317,11 +321,15 @@ async def _persist_swap(swap_info: dict, status: str = "completed") -> None:
     return await loop.run_in_executor(None, _write)
 
 
-async def _process_swap_item(order_tx_id: str, received_at: float) -> bool:
+async def _process_swap_item(
+    order_tx_id: str, received_at: float, user: Optional[str] = None
+) -> bool:
     """Process a single swap; return True on success, False to trigger retry."""
     loop = asyncio.get_running_loop()
     try:
-        swap_info = await loop.run_in_executor(None, extract_swap_info, order_tx_id)
+        swap_info = await loop.run_in_executor(
+            None, extract_swap_info, order_tx_id, user
+        )
         await _persist_swap(swap_info, status="completed")
         print(f"[swap-queue] processed {order_tx_id}")
         return True
@@ -338,14 +346,14 @@ async def _swap_worker():
     global swap_worker_task, swap_queue_tx_ids
     while True:
         try:
-            order_tx_id, received_at = swap_queue.get_nowait()
+            order_tx_id, received_at, user = swap_queue.get_nowait()
         except asyncio.QueueEmpty:
             print("[swap-queue] idle, stopping worker")
             swap_worker_task = None
             return
 
         try:
-            success = await _process_swap_item(order_tx_id, received_at)
+            success = await _process_swap_item(order_tx_id, received_at, user)
         finally:
             swap_queue.task_done()
             # Remove from tracking set when done processing (success or fail)
@@ -356,7 +364,7 @@ async def _swap_worker():
             if age <= SWAP_RETRY_MAX_AGE_SECONDS:
                 # Re-add to tracking set when requeuing
                 swap_queue_tx_ids.add(order_tx_id)
-                await swap_queue.put((order_tx_id, received_at))
+                await swap_queue.put((order_tx_id, received_at, user))
                 print(
                     f"[swap-queue] requeue {order_tx_id} (age={age:.1f}s), sleeping {SWAP_RETRY_SLEEP_SECONDS}s"
                 )
@@ -366,7 +374,7 @@ async def _swap_worker():
                 swap_info = {
                     "transaction_id": order_tx_id,
                     "execution_tx_id": "",
-                    "user": "",
+                    "user": user or "",
                     "token_in": "",
                     "amount_in": 0,
                     "token_out": "",

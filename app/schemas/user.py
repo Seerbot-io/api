@@ -151,7 +151,9 @@ class UserEarning(CustomBaseModel):
     total_deposit: float = 0.0
     total_withdrawal: float = 0.0
     current_value: float = 0.0
-    earnings: float = 0.0  # Calculated: current_value + total_withdrawal - total_deposit
+    earnings: float = (
+        0.0  # Calculated: current_value + total_withdrawal - total_deposit
+    )
     last_updated_timestamp: int = 0
 
 

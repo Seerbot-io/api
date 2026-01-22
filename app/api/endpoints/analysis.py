@@ -1,10 +1,8 @@
-import asyncio
-import json
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, HTTPException
 import requests
 from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
@@ -279,7 +277,8 @@ async def create_swap(
 ) -> schemas.MessageResponse:
     """Queue a swap transaction for background processing."""
     order_tx_id = form.order_tx_id.strip()
-    await add_swap_to_queue(order_tx_id)
+    user = form.user.strip().lower() if form.user is not None else None
+    await add_swap_to_queue(order_tx_id, user)
     return schemas.MessageResponse(message="oke")
 
 
@@ -672,6 +671,7 @@ def format_tradingview_data(result: list) -> dict:
         "v": volumes,
     }
 
+
 @router.get("/charting/config", tags=group_tags)
 @cache("in-1h")
 def get_config():
@@ -807,6 +807,7 @@ def get_bars(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 def generate_subscriber_id(symbol: str, resolution: str) -> str:
     """Generate subscriber_id in format: BARS_{pair}_{resolution}"""
     # Replace "/" with "_" in symbol for subscriber_id
@@ -835,7 +836,7 @@ def _get_token_market_info(symbol: str) -> schemas.TokenMarketInfo:
             low_24h=price.low_24h,
             high_24h=price.high_24h,
             volume_24h=price.volume_24h,
-            market_cap=market_cap
+            market_cap=market_cap,
         )
 
     # If either is missing, this should not happen with proper cache management
@@ -870,11 +871,11 @@ def _get_tokens_bulk(symbols: List[str]) -> List[schemas.TokenMarketInfo]:
     # Cache manager automatically fetches from DB if not cached
     info_dict: Dict[str, Any] = {}
     price_dict: Dict[str, Any] = {}
-    
+
     for symbol in all_symbols:
         info = price_cache.get_token_info(symbol)
         price = price_cache.get_token_price(symbol)
-        
+
         if info:
             info_dict[symbol] = info
         if price:
@@ -882,14 +883,16 @@ def _get_tokens_bulk(symbols: List[str]) -> List[schemas.TokenMarketInfo]:
 
     # Combine info and price data, build result dict
     result_dict: Dict[str, schemas.TokenMarketInfo] = {}
-    
+
     for symbol in all_symbols:
         info = info_dict.get(symbol)
         price = price_dict.get(symbol)
 
         if info and price:
             # Calculate market cap from price * total_supply
-            market_cap = price.price * info.total_supply if info.total_supply > 0 else 0.0
+            market_cap = (
+                price.price * info.total_supply if info.total_supply > 0 else 0.0
+            )
 
             result_dict[symbol] = schemas.TokenMarketInfo(
                 id=info.id,
@@ -901,7 +904,7 @@ def _get_tokens_bulk(symbols: List[str]) -> List[schemas.TokenMarketInfo]:
                 low_24h=price.low_24h,
                 high_24h=price.high_24h,
                 volume_24h=price.volume_24h,
-                market_cap=market_cap
+                market_cap=market_cap,
             )
 
     # Return results in the same order as requested symbols (using original case)

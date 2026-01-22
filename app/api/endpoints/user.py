@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.core.router_decorated import APIRouter
 from app.db.session import SessionLocal, get_db
-from app.models.notice import Notice
 from app.models.tokens import Token
 from app.schemas.notice import NoticeListResponse, NoticeResponse
 from app.schemas.user import (
@@ -56,7 +55,7 @@ def _get_notices(
 ) -> tuple[List[NoticeResponse], int]:
     # Filter by type if provided
     db = SessionLocal()
-    
+
     # Build WHERE clause
     where_clauses = []
     if type:
@@ -65,25 +64,27 @@ def _get_notices(
             type = "all"
         if type != "all":
             where_clauses.append(f"type = '{type}'")
-    
+
     if after_id:
         if order == "desc":
             where_clauses.append(f"id < {after_id}")
         elif order == "asc":
             where_clauses.append(f"id > {after_id}")
-    
+
     where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
-    
+
     # Build ORDER BY clause
     order_sql = "DESC" if order == "desc" else "ASC"
-    
+
     # Build LIMIT and OFFSET clause
     limit_offset_sql = ""
     if limit:
         limit_offset_sql = f"LIMIT {limit}"
     if offset:
-        limit_offset_sql += f" OFFSET {offset}" if limit_offset_sql else f"OFFSET {offset}"
-    
+        limit_offset_sql += (
+            f" OFFSET {offset}" if limit_offset_sql else f"OFFSET {offset}"
+        )
+
     # Query with COUNT(*) OVER() to get total count in one query
     query_sql = text(
         f"""
@@ -103,10 +104,10 @@ def _get_notices(
         {limit_offset_sql}
         """
     )
-    
+
     results = db.execute(query_sql).fetchall()
     total = int(results[0].total_count) if results else 0
-    
+
     # Convert to response models
     notice_responses = [
         NoticeResponse(
@@ -195,8 +196,12 @@ def get_vault_earnings(
     wallet_address: str = Query(
         ..., description="Wallet address of the user (required)"
     ),
-    limit: int = Query(default=20, ge=1, le=100, description="Maximum number of earnings to return"),
-    offset: int = Query(default=0, ge=0, description="Number of earnings to skip for pagination"),
+    limit: int = Query(
+        default=20, ge=1, le=100, description="Maximum number of earnings to return"
+    ),
+    offset: int = Query(
+        default=0, ge=0, description="Number of earnings to skip for pagination"
+    ),
     db: Session = Depends(get_db),
 ) -> VaultEarningsResponse:
     """
@@ -236,21 +241,23 @@ def get_vault_earnings(
 
     # Convert to earnings format
     earnings = []
-    
+
     for earning in earnings_data:
         # Calculate ROI (Return on Investment)
         # ROI = ((current_value + total_withdrawal - total_deposit) / total_deposit) * 100
         total_deposit = float(earning.total_deposit)
         total_withdrawal = float(earning.total_withdrawal)
         current_value = float(earning.current_value)
-        
+
         # Net investment = total_deposit - total_withdrawal
         # net_deposit = total_deposit - total_withdrawal
-        
+
         # ROI calculation: (current_value - net_deposit) / net_deposit * 100
         # Or: (current_value + total_withdrawal - total_deposit) / total_deposit * 100
         if total_deposit > 0:
-            roi = ((current_value + total_withdrawal - total_deposit) / total_deposit) * 100
+            roi = (
+                (current_value + total_withdrawal - total_deposit) / total_deposit
+            ) * 100
         else:
             roi = 0.0
 
@@ -258,7 +265,9 @@ def get_vault_earnings(
             VaultEarning(
                 vault_id=earning.vault_id,
                 vault_name=str(earning.vault_name) if earning.vault_name else "",
-                vault_address=str(earning.vault_address) if earning.vault_address else "",
+                vault_address=str(earning.vault_address)
+                if earning.vault_address
+                else "",
                 total_deposit=round(total_deposit, 2),
                 current_value=round(current_value, 2),
                 roi=round(roi, 2),
@@ -272,6 +281,7 @@ def get_vault_earnings(
         limit=limit,
     )
 
+
 @router.get(
     "/swaps",
     tags=group_tags,
@@ -284,7 +294,10 @@ def get_user_swaps(
     ),
     page: int = Query(default=1, ge=1, description="Page number (default: 1)"),
     limit: int = Query(
-        default=20, ge=1, le=100, description="Number of records per page (default: 20, max: 100)"
+        default=20,
+        ge=1,
+        le=100,
+        description="Number of records per page (default: 20, max: 100)",
     ),
     db: Session = Depends(get_db),
 ) -> UserSwapListResponse:
@@ -366,7 +379,9 @@ def get_user_swaps(
             UserSwap(
                 fromToken=SwapToken(
                     tokenInfo=from_token_info,
-                    amount=str(swap.from_amount) if swap.from_amount is not None else "0",
+                    amount=str(swap.from_amount)
+                    if swap.from_amount is not None
+                    else "0",
                 ),
                 toToken=SwapToken(
                     tokenInfo=to_token_info,
@@ -395,7 +410,10 @@ def get_vault_transactions(
     ),
     page: int = Query(default=1, ge=1, description="Page number (default: 1)"),
     limit: int = Query(
-        default=20, ge=1, le=100, description="Number of records per page (default: 20, max: 100)"
+        default=20,
+        ge=1,
+        le=100,
+        description="Number of records per page (default: 20, max: 100)",
     ),
     db: Session = Depends(get_db),
 ) -> VaultTransactionListResponse:
@@ -466,7 +484,11 @@ def get_vault_transactions(
     # Convert to response format
     transaction_data = []
     for transaction in transactions:
-        token_symbol = token_info_map.get(str(transaction.token_id), None) if transaction.token_id else None
+        token_symbol = (
+            token_info_map.get(str(transaction.token_id), None)
+            if transaction.token_id
+            else None
+        )
 
         transaction_data.append(
             VaultTransaction(
@@ -475,14 +497,20 @@ def get_vault_transactions(
                 vault_name=transaction.vault_name,
                 wallet_address=str(transaction.wallet_address),
                 action=str(transaction.action),
-                amount=float(transaction.amount) if transaction.amount is not None else 0.0,
+                amount=float(transaction.amount)
+                if transaction.amount is not None
+                else 0.0,
                 token_id=str(transaction.token_id) if transaction.token_id else "",
                 token_symbol=token_symbol,
                 txn=str(transaction.txn) if transaction.txn else "",
-                timestamp=int(transaction.timestamp) if transaction.timestamp is not None else 0,
+                timestamp=int(transaction.timestamp)
+                if transaction.timestamp is not None
+                else 0,
                 status=str(transaction.status) if transaction.status else "pending",
                 fee=float(transaction.fee) if transaction.fee is not None else 0.0,
             )
         )
 
-    return VaultTransactionListResponse(transactions=transaction_data, total=total, page=page, limit=limit)
+    return VaultTransactionListResponse(
+        transactions=transaction_data, total=total, page=page, limit=limit
+    )

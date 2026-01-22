@@ -5,7 +5,12 @@ from typing import Any, Dict, Optional, Tuple
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 
-from app.api.endpoints.analysis import TIMEFRAME_DURATION_MAP, SUPPORTED_RESOLUTIONS, get_chart_data, _get_tokens_bulk
+from app.api.endpoints.analysis import (
+    TIMEFRAME_DURATION_MAP,
+    SUPPORTED_RESOLUTIONS,
+    get_chart_data,
+    _get_tokens_bulk,
+)
 from app.api.endpoints.user import _get_notices
 from app.core.router_decorated import APIRouter
 from app.schemas.notice import NoticeListResponse
@@ -413,7 +418,7 @@ async def handle_ohlc(
             result = get_chart_data(  # have cache
                 symbol=symbol,
                 resolution=resolution,
-                from_time=datetime.now().timestamp() - ts*10,
+                from_time=datetime.now().timestamp() - ts * 10,
                 count_back=1,
             )
         else:
@@ -421,7 +426,7 @@ async def handle_ohlc(
                 symbol=symbol,
                 resolution=resolution,
                 from_time=last_timestamp + ts,
-                to_time=last_timestamp + ts*2,
+                to_time=last_timestamp + ts * 2,
             )
         if result and len(result) > 0:
             row = result[0]

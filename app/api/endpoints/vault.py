@@ -25,6 +25,7 @@ from app.services import price_cache
 router = APIRouter()
 group_tags: List[str] = ["vault"]
 
+
 @cache("in-5m", key_prefix="vaults")
 def _get_vaults(
     db: Session,
@@ -106,7 +107,9 @@ def _get_vaults(
                 "annual_return": round(annual_return, 2),
                 "tvl_usd": float(row.tvl_usd) if row.tvl_usd else 0.0,
                 "max_drawdown": float(row.max_drawdown) if row.max_drawdown else 0.0,
-                "start_time": int(row.start_time) if row.start_time else int(datetime.now().timestamp()),
+                "start_time": int(row.start_time)
+                if row.start_time
+                else int(datetime.now().timestamp()),
             }
         )
 
@@ -125,7 +128,7 @@ def _get_vault_stats_data(
     Returns a dict with stats fields.
     """
     vid = vault_id.strip().lower()
-    
+
     query_sql = text(
         f"""
         SELECT 
@@ -169,7 +172,9 @@ def _get_vault_stats_data(
         return {}
 
     annual_return = float(result.return_percent) if result.return_percent else 0.0
-    start_time = result.depositing_time if result.depositing_time else result.trade_start_time
+    start_time = (
+        result.depositing_time if result.depositing_time else result.trade_start_time
+    )
     dc_map = {
         "1h": "1 hour",
         "4h": "4 hours",
@@ -178,26 +183,44 @@ def _get_vault_stats_data(
         "1m": "1 month",
         "1y": "1 year",
     }
-    decision_cycle = dc_map.get(str(result.decision_cycle), str(result.decision_cycle)) if str(result.decision_cycle) else None
+    decision_cycle = (
+        dc_map.get(str(result.decision_cycle), str(result.decision_cycle))
+        if str(result.decision_cycle)
+        else None
+    )
     return {
         "state": str(result.state) if result.state else "",
         "tvl_usd": float(result.tvl_usd) if result.tvl_usd else 0.0,
         "max_drawdown": float(result.max_drawdown) if result.max_drawdown else 0.0,
-        "trade_start_time": int(result.trade_start_time) if result.trade_start_time else None,
+        "trade_start_time": int(result.trade_start_time)
+        if result.trade_start_time
+        else None,
         "trade_end_time": int(result.trade_end_time) if result.trade_end_time else None,
         "start_value": float(result.start_value) if result.start_value else 0.0,
         "current_value": float(result.current_value) if result.current_value else 0.0,
-        "return_percent": float(result.return_percent) if result.return_percent else 0.0,
+        "return_percent": float(result.return_percent)
+        if result.return_percent
+        else 0.0,
         "annual_return": round(annual_return, 2),
         "total_trades": int(result.total_trades) if result.total_trades else 0,
         "winning_trades": int(result.winning_trades) if result.winning_trades else 0,
         "losing_trades": int(result.losing_trades) if result.losing_trades else 0,
         "win_rate": float(result.win_rate) if result.win_rate else 0.0,
-        "avg_profit_per_winning_trade_pct": float(result.avg_profit_per_winning_trade_pct) if result.avg_profit_per_winning_trade_pct else 0.0,
-        "avg_loss_per_losing_trade_pct": float(result.avg_loss_per_losing_trade_pct) if result.avg_loss_per_losing_trade_pct else 0.0,
-        "total_fees_paid": float(result.total_fees_paid) if result.total_fees_paid else 0.0,
+        "avg_profit_per_winning_trade_pct": float(
+            result.avg_profit_per_winning_trade_pct
+        )
+        if result.avg_profit_per_winning_trade_pct
+        else 0.0,
+        "avg_loss_per_losing_trade_pct": float(result.avg_loss_per_losing_trade_pct)
+        if result.avg_loss_per_losing_trade_pct
+        else 0.0,
+        "total_fees_paid": float(result.total_fees_paid)
+        if result.total_fees_paid
+        else 0.0,
         "decision_cycle": decision_cycle,
-        "trade_per_month": float(result.trade_per_month) if result.trade_per_month else 0.0,
+        "trade_per_month": float(result.trade_per_month)
+        if result.trade_per_month
+        else 0.0,
         "start_time": int(start_time) if start_time else None,
     }
 
@@ -209,10 +232,17 @@ def _get_vault_stats_data(
     status_code=http_status.HTTP_200_OK,
 )
 def get_vaults_by_status(
-    status: str = Query("active", description="Filter by status: active, inactive, or all (default: active)"),
+    status: str = Query(
+        "active",
+        description="Filter by status: active, inactive, or all (default: active)",
+    ),
     page: int = Query(1, ge=1, description="Page number (default: 1)"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page (default: 20, max: 100)"),
-    offset: Optional[int] = Query(None, description="Number of items to skip (alternative to page)"),
+    limit: int = Query(
+        20, ge=1, le=100, description="Items per page (default: 20, max: 100)"
+    ),
+    offset: Optional[int] = Query(
+        None, description="Number of items to skip (alternative to page)"
+    ),
     db: Session = Depends(get_db),
 ) -> VaultListResponse:
     """
@@ -259,7 +289,9 @@ def get_vaults_by_status(
                 annual_return=float(item.get("annual_return", 0.0) or 0.0),
                 tvl_usd=float(item.get("tvl_usd", 0.0) or 0.0),
                 max_drawdown=float(item.get("max_drawdown", 0.0) or 0.0),
-                start_time=int(item.get("start_time") or int(datetime.now().timestamp())),
+                start_time=int(
+                    item.get("start_time") or int(datetime.now().timestamp())
+                ),
             )
         )
     total = int(data.get("total", 0) or 0)
@@ -315,21 +347,31 @@ def get_vault_info(
     if not data["items"]:
         raise HTTPException(status_code=404, detail="Vault not found")
     item = data["items"][0]
-    
+
     # Get stats data
     stats_data = _get_vault_stats_data(db, vault_id=id)
-    
+
     # Merge the data (stats_data takes precedence for overlapping fields)
-    item.update({
-        "state": stats_data.get("state", item.get("state", "")),
-        "annual_return": stats_data.get("annual_return", item.get("annual_return", 0.0)),
-        "tvl_usd": stats_data.get("tvl_usd", item.get("tvl_usd", 0.0)),
-        "max_drawdown": stats_data.get("max_drawdown", item.get("max_drawdown", 0.0)),
-        "start_time": stats_data.get("start_time", item.get("start_time")),
-        "trade_per_month": stats_data.get("trade_per_month", item.get("trade_per_month", 0.0)),
-        "decision_cycle": stats_data.get("decision_cycle", item.get("decision_cycle", None)),
-    })
-    
+    item.update(
+        {
+            "state": stats_data.get("state", item.get("state", "")),
+            "annual_return": stats_data.get(
+                "annual_return", item.get("annual_return", 0.0)
+            ),
+            "tvl_usd": stats_data.get("tvl_usd", item.get("tvl_usd", 0.0)),
+            "max_drawdown": stats_data.get(
+                "max_drawdown", item.get("max_drawdown", 0.0)
+            ),
+            "start_time": stats_data.get("start_time", item.get("start_time")),
+            "trade_per_month": stats_data.get(
+                "trade_per_month", item.get("trade_per_month", 0.0)
+            ),
+            "decision_cycle": stats_data.get(
+                "decision_cycle", item.get("decision_cycle", None)
+            ),
+        }
+    )
+
     return VaultInfo(**item)
 
 
@@ -349,7 +391,7 @@ def get_vault_stats(
     Path Parameters:
     - id: Vault UUID
 
-    Returns: 
+    Returns:
       - state: Vault state
       - tvl_usd: TVL in USD
       - max_drawdown: Max drawdown
@@ -376,10 +418,10 @@ def get_vault_stats(
         uuid.UUID(id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid vault ID")
-    
+
     # Get stats data using shared function
     stats_data = _get_vault_stats_data(db, vault_id=id)
-    
+
     if not stats_data:
         raise HTTPException(status_code=404, detail="Vault not found")
 
@@ -394,11 +436,17 @@ def get_vault_stats(
 )
 def get_vault_values(
     id: str,
-    currency: Optional[str] = Query('usd', description="Currency to use for closing price (usd, ada)"),
-    resolution: Optional[str] = Query(None, description="Time resolution (e.g., 1d, 1w, 1m)"),
+    currency: Optional[str] = Query(
+        "usd", description="Currency to use for closing price (usd, ada)"
+    ),
+    resolution: Optional[str] = Query(
+        None, description="Time resolution (e.g., 1d, 1w, 1m)"
+    ),
     # start_time: Optional[int] = Query(None, description="Start timestamp (Unix timestamp)"),
     # end_time: Optional[int] = Query(None, description="End timestamp (Unix timestamp)"),
-    count_back: Optional[int] = Query(None, description="Number of bars to return from end"),
+    count_back: Optional[int] = Query(
+        None, description="Number of bars to return from end"
+    ),
     db: Session = Depends(get_db),
 ) -> VaultValuesResponse:
     """
@@ -435,10 +483,10 @@ def get_vault_values(
     else:  # default to 1d
         resolution_seconds = 86400
     count_back = count_back if count_back else 20
-    if currency == 'ada':
-        closing_price_column = 'total_value_ada'
+    if currency == "ada":
+        closing_price_column = "total_value_ada"
     else:
-        closing_price_column = 'total_value_usd'
+        closing_price_column = "total_value_usd"
     # Build query for vault_balance_snapshots
     base_query = f"""
         select vbs.timestamp, vbs.{closing_price_column} as closing_price 
@@ -481,8 +529,12 @@ def get_vault_positions(
     id: str,
     status: Optional[str] = Query(None, description="Filter by status: open or closed"),
     page: int = Query(1, ge=1, description="Page number (default: 1)"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page (default: 20, max: 100)"),
-    offset: Optional[int] = Query(None, description="Number of items to skip (alternative to page)"),
+    limit: int = Query(
+        20, ge=1, le=100, description="Items per page (default: 20, max: 100)"
+    ),
+    offset: Optional[int] = Query(
+        None, description="Number of items to skip (alternative to page)"
+    ),
     db: Session = Depends(get_db),
 ) -> VaultPositionsResponse:
     """
@@ -582,13 +634,17 @@ def get_vault_positions(
             if row.quote_token_symbol:
                 quote_token_symbol = str(row.quote_token_symbol)
                 # Parse current_asset JSON
-                current_assets = json.loads(str(row.current_asset)) if row.current_asset else "{}"
-            
+                current_assets = (
+                    json.loads(str(row.current_asset)) if row.current_asset else "{}"
+                )
+
             if quote_token_symbol and isinstance(current_assets, dict):
                 # Calculate total value in quote asset terms
                 total_value_in_quote = 0.0
                 for asset_token, asset_amount in current_assets.items():
-                    price = price_cache.get_pair_price(f"{asset_token}/{quote_token_symbol}")
+                    price = price_cache.get_pair_price(
+                        f"{asset_token}/{quote_token_symbol}"
+                    )
                     if price is None:
                         continue
                     asset_value = float(asset_amount) * price
@@ -606,7 +662,9 @@ def get_vault_positions(
                 value=value,
                 profit=profit,
                 open_time=int(row.start_time) if row.start_time else 0,
-                close_time=int(row.update_time) if position_status == "closed" else None,
+                close_time=int(row.update_time)
+                if position_status == "closed"
+                else None,
                 status=position_status,
             )
         )
@@ -617,4 +675,3 @@ def get_vault_positions(
         limit=limit,
         positions=positions,
     )
-

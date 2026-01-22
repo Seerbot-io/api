@@ -8,6 +8,7 @@ from app.schemas.my_base_model import CustomBaseModel
 
 class VaultListItem(CustomBaseModel):
     """Vault list item for /vaults/{status} endpoint"""
+
     id: str = ""  # uuid
     state: str = ""  # open, trading, withdrawable, closed
     icon_url: Optional[str] = None
@@ -36,9 +37,9 @@ class VaultInfo(CustomBaseModel):
     icon_url: Optional[str] = None
     vault_name: str = ""
     vault_type: str = "Seerbot Vault"
-    vault_type_logo: str = settings.HOST + '/static/images/Seerbot.png'
+    vault_type_logo: str = settings.HOST + "/static/images/Seerbot.png"
     blockchain: str = "Cardano"
-    blockchain_logo: str = settings.HOST + '/static/images/Cardano_icon.png'
+    blockchain_logo: str = settings.HOST + "/static/images/Cardano_icon.png"
     address: str = ""
     summary: Optional[str] = None
     annual_return: float = 0.0
@@ -54,7 +55,9 @@ class VaultValuesResponse(CustomBaseModel):
     """Vault values response for /vaults/{id}/values endpoint (TradingView format)"""
 
     s: str = "ok"  # Status code: ok, error, or no_data
-    t: List[int] = Field(default_factory=list)  # Array of bar timestamps (Unix timestamp UTC)
+    t: List[int] = Field(
+        default_factory=list
+    )  # Array of bar timestamps (Unix timestamp UTC)
     c: List[float] = Field(default_factory=list)  # Closing price
 
 
@@ -83,7 +86,7 @@ class VaultStats(CustomBaseModel):
     def round_fields(cls, v: float) -> float:
         return round(v, 2)
 
-    
+
 class VaultPosition(CustomBaseModel):
     """Vault position for /vaults/{id}/positions endpoint"""
 
@@ -94,10 +97,11 @@ class VaultPosition(CustomBaseModel):
     close_time: Optional[int] = None  # position close_time
     status: str = ""  # "open" or "closed"
     profit: float = 0.0  # profit percentage: (value - spend) / spend * 100
-    
+
     @field_validator("spend", "value", "profit")
     def round_fields(cls, v: float) -> float:
         return round(v, 2)
+
 
 class VaultPositionsResponse(CustomBaseModel):
     """Response model for vault positions list"""

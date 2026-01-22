@@ -135,6 +135,7 @@ class TokenList(CustomBaseModel):
 
 class SwapCreate(CustomBaseModel):
     order_tx_id: str = ""
+    user: Optional[str] = Field(None, description="User address")
     # execution_tx_id: Optional[str] = None
     # from_token: Optional[str] = None
     # to_token: Optional[str] = None

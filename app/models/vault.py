@@ -1,6 +1,14 @@
-from sqlalchemy import Column, String, Float, BigInteger, Text, ForeignKey, DateTime, Integer
+from sqlalchemy import (
+    Column,
+    String,
+    Float,
+    BigInteger,
+    Text,
+    ForeignKey,
+    Integer,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.sql import func, text
+from sqlalchemy.sql import text
 
 from app.db.base import Base
 
@@ -30,7 +38,7 @@ class Vault(Base):
     id = Column(
         UUID(as_uuid=False),  # Stores as string in Python
         primary_key=True,
-        server_default=text("chatbot.uuid_generate_v4()")
+        server_default=text("chatbot.uuid_generate_v4()"),
     )
     logo_url = Column(String(255), nullable=True)
     name = Column(String(255), nullable=False)
@@ -45,6 +53,7 @@ class Vault(Base):
     withdrawal_time = Column(BigInteger, nullable=True)
     closed_time = Column(BigInteger, nullable=True)
     summary = Column(String(255), nullable=True)
+
 
 class VaultPosition(Base):
     """Model for vault_positions table in proddb schema
@@ -68,19 +77,16 @@ class VaultPosition(Base):
     id = Column(
         UUID(as_uuid=False),
         primary_key=True,
-        server_default=text("chatbot.uuid_generate_v4()")
+        server_default=text("chatbot.uuid_generate_v4()"),
     )
     vault_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("proddb.vault.id"),
-        nullable=False,
-        index=True
+        UUID(as_uuid=False), ForeignKey("proddb.vault.id"), nullable=False, index=True
     )
     start_time = Column(BigInteger, nullable=False, index=True)
     update_time = Column(BigInteger, nullable=False)
     pair = Column(String(255), nullable=True)
     spend = Column(Float, nullable=True, default=0.0)
-    current_asset = Column(Text, nullable=True, default='{}')
+    current_asset = Column(Text, nullable=True, default="{}")
     return_amount = Column(Float, nullable=True, default=0.0)
     quote_token_id = Column(String(255), nullable=True)
     # base_token_id = Column(String(255), nullable=True)
@@ -107,14 +113,14 @@ class VaultPositionTxn(Base):
         ForeignKey("proddb.vault_positions.id"),
         primary_key=True,
         nullable=False,
-        index=True
+        index=True,
     )
     trade_id = Column(
         String(255),
         ForeignKey("proddb.swap_transactions.txn"),
         primary_key=True,
         nullable=False,
-        index=True
+        index=True,
     )
     base_quantity = Column(Float, nullable=False)
     quote_quantity = Column(Float, nullable=False)
@@ -141,7 +147,7 @@ class TradeStrategy(Base):
     id = Column(
         UUID(as_uuid=False),
         primary_key=True,
-        server_default=text("chatbot.uuid_generate_v4()")
+        server_default=text("chatbot.uuid_generate_v4()"),
     )
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -172,7 +178,7 @@ class VaultBalanceSnapshot(Base):
         ForeignKey("proddb.vault.id"),
         primary_key=True,
         nullable=False,
-        index=True
+        index=True,
     )
     timestamp = Column(BigInteger, primary_key=True, nullable=False, index=True)
     asset = Column(JSONB, nullable=False)  # JSON data about token amount, price in USD
@@ -213,7 +219,7 @@ class VaultState(Base):
         ForeignKey("proddb.vault.id"),
         primary_key=True,
         nullable=False,
-        index=True
+        index=True,
     )
     vault_address = Column(String(255), nullable=False)
     update_time = Column(BigInteger, nullable=False, index=True)
@@ -257,16 +263,15 @@ class VaultLog(Base):
     id = Column(
         UUID(as_uuid=False),
         primary_key=True,
-        server_default=text("chatbot.uuid_generate_v4()")
+        server_default=text("chatbot.uuid_generate_v4()"),
     )
     vault_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("proddb.vault.id"),
-        nullable=False,
-        index=True
+        UUID(as_uuid=False), ForeignKey("proddb.vault.id"), nullable=False, index=True
     )
     wallet_address = Column(String(255), nullable=False, index=True)
-    action = Column(String(50), nullable=False)  # 'deposit', 'withdrawal', 'claim', 'reinvest'
+    action = Column(
+        String(50), nullable=False
+    )  # 'deposit', 'withdrawal', 'claim', 'reinvest'
     amount = Column(Float, nullable=False)
     token_id = Column(String(255))
     txn = Column(String(255))
@@ -295,13 +300,10 @@ class UserEarning(Base):
     id = Column(
         UUID(as_uuid=False),
         primary_key=True,
-        server_default=text("chatbot.uuid_generate_v4()")
+        server_default=text("chatbot.uuid_generate_v4()"),
     )
     vault_id = Column(
-        UUID(as_uuid=False),
-        ForeignKey("proddb.vault.id"),
-        nullable=False,
-        index=True
+        UUID(as_uuid=False), ForeignKey("proddb.vault.id"), nullable=False, index=True
     )
     wallet_address = Column(String(255), nullable=False, index=True)
     total_deposit = Column(Float, default=0.0)
