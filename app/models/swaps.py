@@ -14,6 +14,7 @@ class Swap(Base):
         "from_amount": 0.1,
         "to_amount": 5000.00,
         "price": 50000.00,
+        "value_ada": 0.1,
         "timestamp": 1697123456,
         "extend_data": {
             "order_tx_id": "ab79c2bdc3890c1...767a43a1a68f3",
