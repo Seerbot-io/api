@@ -198,11 +198,11 @@ def extract_swap_info(market_order_tx: str) -> dict:
     if detail.get("direction", "") == "A_TO_B":
         token_in = asset_a.get("ticker")
         token_out = asset_b.get("ticker")
-        value = asset_a.get("price_by_ada", 1) * amount_in
+        value_ada = asset_a.get("price_by_ada", 1) * amount_in
     else:
         token_in = asset_b.get("ticker")
         token_out = asset_a.get("ticker")
-        value = asset_b.get("price_by_ada", 1) * amount_out
+        value_ada = asset_b.get("price_by_ada", 1) * amount_in
     return {
         "transaction_id": market_order_tx,
         "execution_tx_id": order.get("updated_tx_id", ""),
@@ -212,7 +212,7 @@ def extract_swap_info(market_order_tx: str) -> dict:
         "token_out": token_out,
         "amount_out": amount_out,
         "price": price,
-        "value_ada": value,
+        "value_ada": value_ada,
         "fee": fee,
         "price_ada": price_ada,
     }
