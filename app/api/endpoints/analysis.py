@@ -943,13 +943,6 @@ def _generate_predict_list(
     return predict_list
 
 
-# todo: fix this
-# - [ ] fix the price": 0
-# - [ ] fix the change_24h calculation
-# - [ ] fix the volume_24h calculation
-# - [ ] fix the market_cap calculation
-
-
 @router.get("/trend", tags=group_tags, response_model=schemas.TrendResponse)
 @cache("in-5m")
 def get_trend(
@@ -1301,7 +1294,6 @@ def get_predict_signal(
 
 # todo: fix this
 # - [ ] implement predict_signal
-# - [ ] fix icon url in get_predictions
 @router.get("/predictions", tags=group_tags, response_model=List[schemas.Prediction])
 @cache("in-5m")
 def get_predictions(

@@ -53,6 +53,10 @@ class Vault(Base):
     withdrawal_time = Column(BigInteger, nullable=True)
     closed_time = Column(BigInteger, nullable=True)
     summary = Column(String(255), nullable=True)
+    pool_id = Column(String(255), nullable=True)  # "policy_id.asset_name" hex
+    manager_pkh = Column(String(255), nullable=True)
+    max_users = Column(Integer, default=50, nullable=True)
+    post_money_val = Column(BigInteger, default=0, nullable=True)
 
 
 class VaultPosition(Base):
@@ -238,6 +242,27 @@ class VaultState(Base):
     avg_profit_per_winning_trade_pct = Column(Float, default=0.0)
     avg_loss_per_losing_trade_pct = Column(Float, default=0.0)
     total_fees_paid = Column(Float, default=0.0)
+    pool_id = Column(String(255), nullable=True)
+
+
+class VaultConfigUtxo(Base):
+    """Config/reference UTXO for a vault (tx_hash + utxo_id = reference script UTXO)."""
+
+    __tablename__ = "vault_config_utxo"
+    __table_args__ = {"schema": "proddb"}
+
+    vault_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("proddb.vault.id"),
+        primary_key=True,
+        nullable=False,
+        index=True,
+    )
+    vault_address = Column(String(255), nullable=False)
+    update_time = Column(BigInteger, nullable=False, default=0)
+    pool_id = Column(String(255), nullable=True)
+    tx_hash = Column(String(255), nullable=True)
+    utxo_id = Column(Integer, default=0, nullable=True)
 
 
 class VaultLog(Base):

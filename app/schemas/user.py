@@ -35,6 +35,7 @@ class VaultEarning(CustomBaseModel):
     vault_id: str = ""  # Changed from int to str (UUID)
     vault_name: str = ""
     vault_address: str = ""
+    pool_id: str = ""
     total_deposit: float = 0.0
     current_value: float = 0.0
     roi: float = 0.0  # Return on Investment percentage

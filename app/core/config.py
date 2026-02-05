@@ -47,8 +47,15 @@ class Settings(BaseSettings):
     # Chat GPT settings
     GPT_KEY: str | None
 
-    # BLOCKFROST
+    # CARDANO
     BLOCKFROST_API_KEY: str
+    # Used to sign on-chain withdraw transactions.
+    # Accepts either a filesystem path to a *.skey file or a CBOR hex string.
+    VAULT_WITHDRAW_SIGNING_KEY: str | None = None
+    # Bech32 address corresponding to the withdraw signing key (fee payer / change address).
+    VAULT_WITHDRAW_ADDRESS: str | None = None
+    # Cardano network selector for Blockfrost base URL.
+    CARDANO_NETWORK: str = "mainnet"
 
     # Token price cache settings
     TOKEN_CACHE_ENABLE_BACKGROUND_REFRESH: bool = False

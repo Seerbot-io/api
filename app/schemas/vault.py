@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import Field, field_validator
 
@@ -14,6 +14,8 @@ class VaultListItem(CustomBaseModel):
     icon_url: Optional[str] = None
     vault_name: str = ""
     summary: Optional[str] = None
+    address: str = ""
+    pool_id: str = ""
     annual_return: float = 0.0
     tvl_usd: float = 0.0
     max_drawdown: float = 0.0
@@ -41,6 +43,7 @@ class VaultInfo(CustomBaseModel):
     blockchain: str = "Cardano"
     blockchain_logo: str = settings.HOST + "/static/images/Cardano_icon.png"
     address: str = ""
+    pool_id: str = ""
     summary: Optional[str] = None
     annual_return: float = 0.0
     tvl_usd: float = 0.0
@@ -110,3 +113,19 @@ class VaultPositionsResponse(CustomBaseModel):
     page: int = 1
     limit: int = 20
     positions: List[VaultPosition] = Field(default_factory=list)
+
+
+class VaultWithdrawRequest(CustomBaseModel):
+    """Request body for `POST /vaults/withdraw`."""
+
+    vault_id: str
+    wallet_address: str
+    amount_ada: Optional[float] = None
+
+
+class VaultWithdrawResponse(CustomBaseModel):
+    """Response for vault withdraw attempt."""
+
+    status: Literal["ok", "invalid"]
+    tx_id: Optional[str] = None
+    reason: Optional[str] = None

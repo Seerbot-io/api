@@ -19,8 +19,11 @@ from app.schemas.vault import (
     VaultPositionsResponse,
     VaultStats,
     VaultValuesResponse,
+    VaultWithdrawRequest,
+    VaultWithdrawResponse,
 )
 from app.services import price_cache
+from app.services.vault_withdraw import perform_vault_withdraw
 
 router = APIRouter()
 group_tags: List[str] = ["vault"]
@@ -72,6 +75,7 @@ def _get_vaults(
             v.summary,
             v.description,
             v.address,
+            v.pool_id,
             vs.tvl_usd,
             vs.max_drawdown,
             v.depositing_time AS start_time,
@@ -104,6 +108,7 @@ def _get_vaults(
                 "summary": str(row.summary) if row.summary else None,
                 "description": str(row.description) if row.description else None,
                 "address": str(row.address) if row.address else "",
+                "pool_id": str(row.pool_id) if row.pool_id else "",
                 "annual_return": round(annual_return, 2),
                 "tvl_usd": float(row.tvl_usd) if row.tvl_usd else 0.0,
                 "max_drawdown": float(row.max_drawdown) if row.max_drawdown else 0.0,
@@ -264,6 +269,8 @@ def get_vaults_by_status(
       - icon_url: Vault icon URL (optional)
       - vault_name: Vault name
       - summary: Vault summary (optional)
+      - address: Vault script address
+      - pool_id: Vault pool id (policy_id.asset_name)
       - annual_return: Vault annual return
       - tvl_usd: Vault TVL in USD
       - max_drawdown: Vault max drawdown (optional)
@@ -286,6 +293,8 @@ def get_vaults_by_status(
                 icon_url=item.get("icon_url"),
                 vault_name=item.get("vault_name", ""),
                 summary=item.get("summary"),
+                address=item.get("address", ""),
+                pool_id=item.get("pool_id", ""),
                 annual_return=float(item.get("annual_return", 0.0) or 0.0),
                 tvl_usd=float(item.get("tvl_usd", 0.0) or 0.0),
                 max_drawdown=float(item.get("max_drawdown", 0.0) or 0.0),
@@ -324,6 +333,7 @@ def get_vault_info(
     - blockchain: Blockchain
     - blockchain_logo: Blockchain logo URL (optional)
     - address: Vault address
+    - pool_id: Vault pool id (policy_id.asset_name)
     - summary: Vault summary (optional)
     - description: Vault description (optional)
     - annual_return: Vault annual return
@@ -675,3 +685,43 @@ def get_vault_positions(
         limit=limit,
         positions=positions,
     )
+
+
+@router.post(
+    "/withdraw",
+    tags=group_tags,
+    response_model=VaultWithdrawResponse,
+    status_code=http_status.HTTP_200_OK,
+)
+def withdraw_from_vault(
+    payload: VaultWithdrawRequest,
+    db: Session = Depends(get_db),
+) -> VaultWithdrawResponse:
+    """
+    Trigger a vault withdraw if the user still has withdrawable capital.
+    Payload:
+    - vault_id: Vault UUID
+    - wallet_address: Wallet address
+    - amount_ada: Amount of ADA to withdraw (optional, default: all withdrawable amount)
+
+    Returns:
+    - status: "ok" if successful, "invalid" if failed
+    - tx_id: Transaction hash if successful, None if failed
+    - reason: Error message if failed
+
+    *Sample request body:*
+    {
+        "vault_id": "eadbf7f3-944d-4d14-bef9-5549d9b26c8b",
+        "wallet_address": "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm",
+        "amount_ada": 100.0
+    }
+    """
+    outcome = perform_vault_withdraw(
+        db=db,
+        vault_id=payload.vault_id,
+        wallet_address=payload.wallet_address,
+        requested_amount_ada=payload.amount_ada,
+    )
+    if outcome.error:
+        return VaultWithdrawResponse(status="invalid", reason=outcome.error)
+    return VaultWithdrawResponse(status="ok", tx_id=outcome.tx_hash)

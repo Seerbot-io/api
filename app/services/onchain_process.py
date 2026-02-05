@@ -3,7 +3,7 @@
 import asyncio
 import time
 import json
-from typing import Optional
+from typing import Optional, Tuple
 
 from psycopg2 import IntegrityError
 import requests
@@ -393,3 +393,25 @@ async def _ensure_swap_worker():
     if swap_worker_task is None or swap_worker_task.done():
         swap_worker_task = asyncio.create_task(_swap_worker())
         print("[swap-queue] worker started")
+
+# todo: complete this function
+def vault_withdraw_on_chain(
+    vault_address: str,
+    config_utxo_info: Tuple[str, int],
+    withdraw_amount: int,
+    manager_pkh: str,
+) -> str:
+    """
+    Placeholder for the vault withdraw execution.
+    Replace with real Blockfrost/pycardano logic later.
+    """
+    tx_hash, utxo_index = config_utxo_info
+    print(
+        "[vault-withdraw-stub]",
+        vault_address,
+        tx_hash,
+        utxo_index,
+        withdraw_amount,
+        manager_pkh,
+    )
+    return "stubbed-vault-withdraw-tx-hash"
