@@ -18,6 +18,7 @@ from app.schemas.vault import (
     VaultPosition,
     VaultPositionsResponse,
     VaultStats,
+    VaultUserEarning,
     VaultValuesResponse,
     VaultWithdrawRequest,
     VaultWithdrawResponse,
@@ -725,3 +726,67 @@ def withdraw_from_vault(
     if outcome.error:
         return VaultWithdrawResponse(status="invalid", reason=outcome.error)
     return VaultWithdrawResponse(status="ok", tx_id=outcome.tx_hash)
+
+
+@router.get(
+    "/{id}/contribute",
+    tags=group_tags,
+    response_model=VaultUserEarning,
+    status_code=http_status.HTTP_200_OK,
+)
+def get_vault_user_earning(
+    id: str,
+    wallet_address: str = Query(
+        ..., description="Wallet address of the user (required)"
+    ),
+    db: Session = Depends(get_db),
+) -> VaultUserEarning:
+    """
+    Get user's earning info for a specific vault.
+
+    Path Parameters:
+    - id: Vault UUID
+
+    Query Parameters:
+    - wallet_address: Wallet address of the user (required)
+
+    Returns:
+    - total_deposit: Total amount deposited by the user
+    - is_redeemed: Whether the user has redeemed their position (one-time withdrawal)
+
+    *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
+    *Sample wallet address:* addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm
+    """
+    id = id.strip().lower()
+    # check if id is a valid uuid
+    try:
+        uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid vault ID")
+    
+    wallet_address = wallet_address.strip().lower()
+    
+    # Query user earning for this specific vault
+    data_sql = text(
+        f"""
+        SELECT 
+            ue.total_deposit,
+            ue.is_redeemed
+        FROM proddb.user_earnings ue
+        WHERE ue.vault_id = '{id}' AND ue.wallet_address = '{wallet_address}'
+        LIMIT 1
+        """
+    )
+    result = db.execute(data_sql).fetchone()
+    
+    if not result:
+        # Return default values if no record found
+        return VaultUserEarning(
+            total_deposit=0.0,
+            is_redeemed=False,
+        )
+    
+    return VaultUserEarning(
+        total_deposit=round(float(result.total_deposit), 2) if result.total_deposit else 0.0,
+        is_redeemed=bool(result.is_redeemed) if result.is_redeemed is not None else False,
+    )

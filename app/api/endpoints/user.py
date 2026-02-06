@@ -186,6 +186,96 @@ def get_notices(
     )
 
 
+def _get_user_vault_earning(
+    db: Session,
+    wallet_address: str,
+    vault_id: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[List[VaultEarning], int]:
+    """
+    Core function to get user vault earnings.
+    
+    Args:
+        db: Database session
+        wallet_address: User's wallet address
+        vault_id: Optional vault ID to filter by
+        limit: Maximum number of results
+        offset: Pagination offset
+    
+    Returns:
+        Tuple of (list of VaultEarning, total count)
+    """
+    wallet_address = wallet_address.strip().lower()
+    
+    # Build WHERE clause
+    where_clause = f"ue.wallet_address = '{wallet_address}'"
+    if vault_id:
+        vault_id = vault_id.strip().lower()
+        where_clause += f" AND ue.vault_id = '{vault_id}'"
+    
+    # Fetch user earnings with vault info and total count in one query
+    data_sql = text(
+        f"""
+        SELECT 
+            ue.vault_id,
+            v.name as vault_name,
+            v.address as vault_address,
+            v.pool_id,
+            ue.total_deposit,
+            ue.total_withdrawal,
+            ue.current_value,
+            ue.is_redeemed,
+            COUNT(*) OVER() AS total_count
+        FROM proddb.user_earnings ue
+        JOIN proddb.vault v ON ue.vault_id = v.id
+        WHERE {where_clause}
+        ORDER BY ue.current_value DESC
+        LIMIT {limit} OFFSET {offset}
+        """
+    )
+    earnings_data = db.execute(data_sql).fetchall()
+    total = int(earnings_data[0].total_count) if earnings_data else 0
+
+    # Convert to earnings format
+    earnings = []
+
+    for earning in earnings_data:
+        # Calculate ROI (Return on Investment)
+        # ROI = ((current_value + total_withdrawal - total_deposit) / total_deposit) * 100
+        total_deposit = float(earning.total_deposit)
+        total_withdrawal = float(earning.total_withdrawal)
+        current_value = float(earning.current_value)
+
+        # ROI calculation: (current_value - net_deposit) / net_deposit * 100
+        # Or: (current_value + total_withdrawal - total_deposit) / total_deposit * 100
+        if total_deposit > 0:
+            roi = (
+                (current_value + total_withdrawal - total_deposit) / total_deposit
+            ) * 100
+        else:
+            roi = 0.0
+
+        is_redeemed = bool(earning.is_redeemed) if earning.is_redeemed is not None else False
+
+        earnings.append(
+            VaultEarning(
+                vault_id=earning.vault_id,
+                vault_name=str(earning.vault_name) if earning.vault_name else "",
+                vault_address=str(earning.vault_address)
+                if earning.vault_address
+                else "",
+                pool_id=str(earning.pool_id) if getattr(earning, "pool_id", None) else "",
+                total_deposit=round(total_deposit, 2),
+                current_value=round(current_value, 2),
+                roi=round(roi, 2),
+                is_redeemed=is_redeemed,
+            )
+        )
+
+    return earnings, total
+
+
 @router.get(
     "/vaults/earnings",
     tags=group_tags,
@@ -213,69 +303,18 @@ def get_vault_earnings(
     - offset: Number of earnings to skip for pagination (default: 0)
 
     Returns:
-    - earnings: List of vault earnings (vault_id, vault_name, vault_address, pool_id, total_deposit, current_value, roi)
+    - earnings: List of vault earnings (vault_id, vault_name, vault_address, pool_id, total_deposit, current_value, roi, is_redeemed)
     - total, page, limit: Pagination
 
     *Sample wallet address:* addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm
     """
-    wallet_address = wallet_address.strip().lower()
-    # Fetch user earnings with vault info and total count in one query
-    data_sql = text(
-        f"""
-        SELECT 
-            ue.vault_id,
-            v.name as vault_name,
-            v.address as vault_address,
-            v.pool_id,
-            ue.total_deposit,
-            ue.total_withdrawal,
-            ue.current_value,
-            COUNT(*) OVER() AS total_count
-        FROM proddb.user_earnings ue
-        JOIN proddb.vault v ON ue.vault_id = v.id
-        WHERE ue.wallet_address = '{wallet_address}' AND ue.current_value > 0
-        ORDER BY ue.current_value DESC
-        LIMIT {limit} OFFSET {offset}
-        """
+    earnings, total = _get_user_vault_earning(
+        db=db,
+        wallet_address=wallet_address,
+        vault_id=None,
+        limit=limit,
+        offset=offset,
     )
-    earnings_data = db.execute(data_sql).fetchall()
-    total = int(earnings_data[0].total_count) if earnings_data else 0
-
-    # Convert to earnings format
-    earnings = []
-
-    for earning in earnings_data:
-        # Calculate ROI (Return on Investment)
-        # ROI = ((current_value + total_withdrawal - total_deposit) / total_deposit) * 100
-        total_deposit = float(earning.total_deposit)
-        total_withdrawal = float(earning.total_withdrawal)
-        current_value = float(earning.current_value)
-
-        # Net investment = total_deposit - total_withdrawal
-        # net_deposit = total_deposit - total_withdrawal
-
-        # ROI calculation: (current_value - net_deposit) / net_deposit * 100
-        # Or: (current_value + total_withdrawal - total_deposit) / total_deposit * 100
-        if total_deposit > 0:
-            roi = (
-                (current_value + total_withdrawal - total_deposit) / total_deposit
-            ) * 100
-        else:
-            roi = 0.0
-
-        earnings.append(
-            VaultEarning(
-                vault_id=earning.vault_id,
-                vault_name=str(earning.vault_name) if earning.vault_name else "",
-                vault_address=str(earning.vault_address)
-                if earning.vault_address
-                else "",
-                pool_id=str(earning.pool_id) if getattr(earning, "pool_id", None) else "",
-                total_deposit=round(total_deposit, 2),
-                current_value=round(current_value, 2),
-                roi=round(roi, 2),
-            )
-        )
 
     return VaultEarningsResponse(
         earnings=earnings,

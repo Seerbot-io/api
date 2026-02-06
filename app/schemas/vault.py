@@ -129,3 +129,10 @@ class VaultWithdrawResponse(CustomBaseModel):
     status: Literal["ok", "invalid"]
     tx_id: Optional[str] = None
     reason: Optional[str] = None
+
+
+class VaultUserEarning(CustomBaseModel):
+    """User earning info for a specific vault"""
+
+    total_deposit: float = 0.0
+    is_redeemed: bool = False

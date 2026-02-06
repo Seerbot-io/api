@@ -39,6 +39,7 @@ class VaultEarning(CustomBaseModel):
     total_deposit: float = 0.0
     current_value: float = 0.0
     roi: float = 0.0  # Return on Investment percentage
+    is_redeemed: bool = False  # Whether the user has redeemed their position
 
 
 class VaultEarningsResponse(CustomBaseModel):

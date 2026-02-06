@@ -22,6 +22,8 @@ venv
 .env*
 !.env.example
 *.env
+.agent
+.cursor
 
 # dev folders
 notebooks

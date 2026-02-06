@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    Boolean,
     Column,
     String,
     Float,
@@ -314,6 +315,7 @@ class UserEarning(Base):
         "wallet_address": "addr1...",
         "total_deposit": 10000.0,
         "total_withdrawal": 2000.0,
+        "is_redeemed": true,
         "current_value": 9000.0,
         "last_updated_timestamp": 1697123456
     }
@@ -334,4 +336,5 @@ class UserEarning(Base):
     total_deposit = Column(Float, default=0.0)
     total_withdrawal = Column(Float, default=0.0)
     current_value = Column(Float, default=0.0)
+    is_redeemed = Column(Boolean, default=False)
     last_updated_timestamp = Column(BigInteger)
