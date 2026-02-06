@@ -1,3 +1,5 @@
+from pycardano import Network
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,11 +51,6 @@ class Settings(BaseSettings):
 
     # CARDANO
     BLOCKFROST_API_KEY: str
-    # Used to sign on-chain withdraw transactions.
-    # Accepts either a filesystem path to a *.skey file or a CBOR hex string.
-    VAULT_WITHDRAW_SIGNING_KEY: str | None = None
-    # Bech32 address corresponding to the withdraw signing key (fee payer / change address).
-    # Cardano network selector for Blockfrost base URL.
     CARDANO_NETWORK: str = "mainnet"
 
     # Token price cache settings
@@ -62,6 +59,15 @@ class Settings(BaseSettings):
     TOKEN_CACHE_INFO_TTL: int = 3600  # 1 hour in seconds
     TOKEN_CACHE_PRICE_TTL: int = 30  # 30 seconds
 
-
+    @field_validator("CARDANO_NETWORK", mode="before")
+    @classmethod
+    def map_mode(cls, v):
+        if v == "mainnet":
+            return Network.MAINNET
+        elif v == "preprod":
+            return Network.TESTNET
+        else:
+            raise ValueError(f"Invalid network: {v}")
+        return v
 # Instantiate the settings
 settings = Settings()  # type: ignore

@@ -13,7 +13,10 @@ from app.api.endpoints.analysis import (
 )
 from app.api.endpoints.user import _get_notices
 from app.core.router_decorated import APIRouter
+from app.db.session import SessionLocal
 from app.schemas.notice import NoticeListResponse
+from app.services.vault_deployment import get_vault_deployment_info
+from app.services.vault_deposit_worker import queue_vault_deposit_request
 
 router = APIRouter()
 group_tags = ["WebSocket"]
@@ -220,18 +223,29 @@ async def unified_websocket(websocket: WebSocket):
     try:
         while True:
             try:
-                # Receive message (wait indefinitely for new orders/messages)
                 data = await websocket.receive_text()
                 message = json.loads(data)
                 action = message.get("action")
                 channel = message.get("channel", "").strip()
 
-                if not action or not channel:
+                if not action:
+                    await websocket.send_json(
+                        {"error": "Missing required field: action"}
+                    )
+                    await asyncio.sleep(15)
+                    continue
+
+                if action == "vault_deposit":
+                    await _handle_vault_deposit_submission(message, websocket)
+                    continue
+
+                if not channel:
                     await websocket.send_json(
                         {"error": "Missing required fields: action and channel"}
                     )
                     await asyncio.sleep(15)
                     continue
+
                 if action == "subscribe":
                     # Max 5 subscriptions per client
                     if len(subscriptions) >= 5:
@@ -371,6 +385,55 @@ def channel_handler(channel_type: str):
         return func
 
     return decorator
+
+
+async def _handle_vault_deposit_submission(
+    message: Dict[str, Any], websocket: WebSocket
+) -> None:
+    """Handle one-off vault deposit submissions over the WebSocket."""
+    tx_id = (message.get("tx_id") or "").strip()
+    wallet_address = (message.get("user") or "").strip().lower()
+    vault_id = (message.get("vault_id") or "").strip().lower()
+
+    if not tx_id or len(tx_id) != 64 or not wallet_address or not vault_id:
+        reason = "Missing or invalid tx_id/user/vault_id"
+        print(f"[vault-deposit] invalid: tx_id={tx_id!r} user={wallet_address!r} vault_id={vault_id!r} -> {reason}")
+        await websocket.send_json(
+            {"message": "invalid", "reason": reason}
+        )
+        return
+
+    db = SessionLocal()
+    try:
+        deployment = get_vault_deployment_info(db, vault_id)
+    finally:
+        db.close()
+
+    if not deployment:
+        reason = "Unknown vault_id"
+        print(f"[vault-deposit] invalid: vault_id={vault_id!r} -> {reason}")
+        await websocket.send_json(
+            {"message": "invalid", "reason": reason}
+        )
+        return
+
+    try:
+        accepted, reason = await queue_vault_deposit_request(
+            tx_id, wallet_address, vault_id, done_websocket=websocket
+        )
+    except Exception as exc:
+        print(f"[vault-deposit] error: tx_id={tx_id} vault_id={vault_id} -> {exc}")
+        await websocket.send_json(
+            {"message": "error", "reason": "internal error"}
+        )
+        return
+
+    if not accepted:
+        print(f"[vault-deposit] invalid: tx_id={tx_id} vault_id={vault_id} -> {reason}")
+    if accepted:
+        await websocket.send_json({"message": "oke"})
+    else:
+        await websocket.send_json({"message": "invalid", "reason": reason})
 
 
 @channel_handler("ohlc")
@@ -605,6 +668,8 @@ websocket_schema = {
 - Updates are sent every 60 seconds for active subscriptions
 
 **Request Message Format:**
+
+For subscribe/unsubscribe, send:
 ```json
 {
     "action": "subscribe" | "unsubscribe",
@@ -612,7 +677,17 @@ websocket_schema = {
 }
 ```
 
-**Supported Channels:**
+For vault deposit (one-off; no channel), send:
+```json
+{
+    "action": "vault_deposit",
+    "tx_id": "64-character hex transaction ID",
+    "user": "wallet address (e.g. addr1... or stake1...)",
+    "vault_id": "vault UUID"
+}
+```
+
+**Supported Channels and Actions:**
 
 1. **OHLC (Candlestick Data)**
    - Format: `ohlc:{symbol}|{resolution}`
@@ -701,6 +776,17 @@ websocket_schema = {
      }
      ```
 
+4. **Vault deposit (action, not a channel)**
+   - One-off submission: submit a deposit transaction for on-chain validation.
+   - Request: `action: "vault_deposit"`, `tx_id` (64 hex chars), `user` (wallet address), `vault_id` (vault UUID). `channel` is not required.
+   - Immediate response:
+     - `{"message": "oke"}` — accepted (written to vault_logs as pending, queued for processing).
+     - `{"message": "invalid", "reason": "..."}` — validation failed (e.g. bad tx_id, unknown vault_id, already completed/pending).
+     - `{"message": "error", "reason": "internal error"}` — server error (e.g. DB failure).
+   - When on-chain processing is done, the server sends a second message on the same connection:
+     - `{"message": "oke"}` — deposit validated on-chain and recorded.
+     - `{"message": "failed", "reason": "..."}` — validation failed (e.g. datum mismatch, stale).
+
 **Response Messages:**
 
 - **Subscribe Success:**
@@ -736,8 +822,11 @@ websocket_schema = {
   }
   ```
 
+- **Vault deposit responses:** `{"message": "oke"}`, `{"message": "invalid", "reason": "..."}`, `{"message": "error", "reason": "..."}`, or (when processing completes) `{"message": "oke"}` / `{"message": "failed", "reason": "..."}`.
+
 **Error Cases:**
-- Missing required fields (action, channel)
+- Missing required field: action
+- Missing required fields (action and channel) for subscribe/unsubscribe
 - Invalid channel format
 - Unknown channel type
 - Maximum subscriptions reached (5)
@@ -745,6 +834,7 @@ websocket_schema = {
 - Token not found (for token_info channels)
 - Invalid notice parameters (for notices channels)
 - Invalid JSON format
+- Vault deposit: missing or invalid tx_id (must be 64 chars), user, or vault_id; unknown vault_id
                 """,
             "responses": {
                 "101": {

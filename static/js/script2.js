@@ -199,27 +199,46 @@ function updateChannelForm() {
     const barsForm = document.getElementById('barsForm');
     const tokenForm = document.getElementById('tokenForm');
     const noticesForm = document.getElementById('noticesForm');
+    const vaultDepositForm = document.getElementById('vaultDepositForm');
     const subscribeBtn = document.getElementById('subscribeBtn');
     const unsubscribeBtn = document.getElementById('unsubscribeBtn');
+    const subscribeButtonGroup = document.getElementById('subscribeButtonGroup');
+    const vaultDepositSubmitBtn = document.getElementById('vaultDepositSubmitBtn');
     
     if (channelType === 'ohlc') {
         barsForm.style.display = 'block';
         tokenForm.style.display = 'none';
         noticesForm.style.display = 'none';
+        if (vaultDepositForm) vaultDepositForm.style.display = 'none';
+        if (subscribeButtonGroup) subscribeButtonGroup.style.display = 'block';
         subscribeBtn.style.display = 'inline-block';
         unsubscribeBtn.style.display = 'inline-block';
+        if (vaultDepositSubmitBtn) vaultDepositSubmitBtn.style.display = 'none';
     } else if (channelType === 'token_info') {
         barsForm.style.display = 'none';
         tokenForm.style.display = 'block';
         noticesForm.style.display = 'none';
+        if (vaultDepositForm) vaultDepositForm.style.display = 'none';
+        if (subscribeButtonGroup) subscribeButtonGroup.style.display = 'block';
         subscribeBtn.style.display = 'inline-block';
         unsubscribeBtn.style.display = 'inline-block';
+        if (vaultDepositSubmitBtn) vaultDepositSubmitBtn.style.display = 'none';
     } else if (channelType === 'notices') {
         barsForm.style.display = 'none';
         tokenForm.style.display = 'none';
         noticesForm.style.display = 'block';
+        if (vaultDepositForm) vaultDepositForm.style.display = 'none';
+        if (subscribeButtonGroup) subscribeButtonGroup.style.display = 'block';
         subscribeBtn.style.display = 'inline-block';
         unsubscribeBtn.style.display = 'inline-block';
+        if (vaultDepositSubmitBtn) vaultDepositSubmitBtn.style.display = 'none';
+    } else if (channelType === 'vault_deposit') {
+        barsForm.style.display = 'none';
+        tokenForm.style.display = 'none';
+        noticesForm.style.display = 'none';
+        if (vaultDepositForm) vaultDepositForm.style.display = 'block';
+        if (subscribeButtonGroup) subscribeButtonGroup.style.display = 'none';
+        if (vaultDepositSubmitBtn) vaultDepositSubmitBtn.style.display = 'inline-block';
     }
 }
 
@@ -306,6 +325,8 @@ function connect() {
             document.getElementById('disconnectBtn').disabled = false;
             document.getElementById('subscribeBtn').disabled = false;
             document.getElementById('unsubscribeBtn').disabled = false;
+            const vaultDepositSubmitBtn = document.getElementById('vaultDepositSubmitBtn');
+            if (vaultDepositSubmitBtn) vaultDepositSubmitBtn.disabled = false;
         };
         
         ws.onmessage = function(event) {
@@ -327,6 +348,12 @@ function connect() {
                     addMessage('info', 'Subscription', data);
                 } else if (data.error) {
                     addMessage('error', 'Error', data);
+                } else if (data.message === 'oke' || data.message === 'invalid' || data.message === 'error' || data.message === 'failed') {
+                    const titles = { oke: 'Vault deposit', invalid: 'Vault deposit invalid', error: 'Vault deposit error', failed: 'Vault deposit failed (on-chain)' };
+                    const title = titles[data.message] || data.message;
+                    const type = (data.message === 'oke') ? 'success' : 'error';
+                    const body = (data.detail || data.reason) ? { message: data.message, reason: data.reason || data.detail } : { message: data.message };
+                    addMessage(type, title, body);
                 } else if (data.channel && data.type && data.data) {
                     // This is a channel update
                     if (data.type === 'ohlc') {
@@ -396,6 +423,8 @@ function connect() {
             document.getElementById('disconnectBtn').disabled = true;
             document.getElementById('subscribeBtn').disabled = true;
             document.getElementById('unsubscribeBtn').disabled = true;
+            const vaultDepositSubmitBtn = document.getElementById('vaultDepositSubmitBtn');
+            if (vaultDepositSubmitBtn) vaultDepositSubmitBtn.disabled = true;
             subscriptions.clear();
             updateSubscriptionsList();
         };
@@ -449,6 +478,32 @@ function unsubscribe() {
     }
     
     unsubscribeChannel(channel);
+}
+
+function sendVaultDeposit() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        addMessage('error', 'Error', 'Not connected!');
+        return;
+    }
+    const txId = (document.getElementById('vaultDepositTxId') && document.getElementById('vaultDepositTxId').value || '').trim();
+    const user = (document.getElementById('vaultDepositUser') && document.getElementById('vaultDepositUser').value || '').trim();
+    const vaultId = (document.getElementById('vaultDepositVaultId') && document.getElementById('vaultDepositVaultId').value || '').trim();
+    if (!txId || txId.length !== 64) {
+        addMessage('error', 'Validation', 'tx_id must be 64 characters');
+        return;
+    }
+    if (!user || !vaultId) {
+        addMessage('error', 'Validation', 'user and vault_id are required');
+        return;
+    }
+    const message = {
+        action: 'vault_deposit',
+        tx_id: txId,
+        user: user,
+        vault_id: vaultId
+    };
+    ws.send(JSON.stringify(message));
+    addMessage('info', 'Sent', message);
 }
 
 function unsubscribeChannel(channel) {

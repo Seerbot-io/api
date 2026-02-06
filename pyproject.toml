@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "blockfrost-python==0.6.0",
+    "cbor2>=5.7.0",
     "cryptography==46.0.3",
     "fastapi==0.116.1",
     "itsdangerous>=2.2.0",
@@ -21,6 +22,7 @@ dependencies = [
     "sqlalchemy==2.0.27",
     "starlette==0.47.3",
     "uvicorn==0.35.0",
+    "ipykernel>=7.1.0",
 ]
 
 [dependency-groups]

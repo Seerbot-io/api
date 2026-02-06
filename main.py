@@ -107,16 +107,6 @@ async def openapi(username: str = Depends(doc_auth)):
     openapi_schema["paths"].update(websocket.websocket_schema)
     return openapi_schema
 
-
-@app.get("/websocket-test", include_in_schema=False)
-async def websocket_test_page():
-    """Serve the WebSocket test HTML page"""
-    html_path = os.path.join(os.path.dirname(__file__), "static", "websocket_test.html")
-    if os.path.exists(html_path):
-        return FileResponse(html_path, media_type="text/html")
-    raise HTTPException(status_code=404, detail="WebSocket test page not found")
-
-
 @app.get("/websocket-test2", include_in_schema=False)
 async def unified_websocket_test_page():
     """Serve the unified WebSocket test HTML page"""

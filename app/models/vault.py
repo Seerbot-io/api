@@ -304,6 +304,7 @@ class VaultLog(Base):
     timestamp = Column(BigInteger, nullable=False)
     status = Column(String(50), default="pending")
     fee = Column(Float, default=0.0)
+    extra = Column("metadata", JSONB, nullable=True)  # DB column 'metadata'; 'extra' avoids SQLAlchemy reserved name
 
 
 class UserEarning(Base):

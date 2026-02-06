@@ -25,11 +25,12 @@
             </div>
             
             <div class="form-group" style="margin-top: 20px;">
-                <label>Channel Type</label>
+                <label>Channel / Action</label>
                 <select id="channelType" onchange="updateChannelForm()">
                     <option value="ohlc">ohlc</option>
                     <option value="token_info">token_info</option>
                     <option value="notices">notices</option>
+                    <option value="vault_deposit">vault_deposit</option>
                 </select>
             </div>
             
@@ -61,6 +62,38 @@
                     <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
                         Token symbol for market info (shows: symbol, name, logo, price, 24h change in USD, market cap)
                     </small>
+                </div>
+            </div>
+            
+            <div id="vaultDepositForm" style="display: none;">
+                <div class="form-group">
+                    <label>Transaction ID (tx_id)</label>
+                    <input type="text" id="vaultDepositTxId" value="" placeholder="64-character hex transaction ID" maxlength="64">
+                    <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                        The on-chain transaction ID (64 hex chars)
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>User (wallet address)</label>
+                    <input type="text" id="vaultDepositUser" value="" placeholder="addr1...">
+                    <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                        Depositor wallet address
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>Vault ID</label>
+                    <input type="text" id="vaultDepositVaultId" value="" placeholder="UUID e.g. e13d48c8-9725-4405-8746-b84be7acc5c2">
+                    <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                        Vault UUID from the API
+                    </small>
+                </div>
+                <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                    <small style="color: #1976d2;">
+                        <strong>Vault deposit:</strong> Submits a deposit tx for processing. Server writes vault_logs (pending) and responds with message "oke" or "invalid". No subscription.
+                    </small>
+                </div>
+                <div class="button-group" style="margin-top: 10px;">
+                    <button id="vaultDepositSubmitBtn" class="btn-subscribe" onclick="sendVaultDeposit()" disabled>Submit vault deposit</button>
                 </div>
             </div>
             
@@ -113,7 +146,7 @@
                 </div>
             </div>
             
-            <div class="button-group">
+            <div class="button-group" id="subscribeButtonGroup">
                 <button id="subscribeBtn" class="btn-subscribe" onclick="subscribe()" disabled>Subscribe</button>
                 <button id="unsubscribeBtn" class="btn-unsubscribe" onclick="unsubscribe()" disabled>Unsubscribe</button>
             </div>

@@ -10,18 +10,18 @@ from app.models.vault import Vault, VaultConfigUtxo
 
 @dataclass
 class VaultDeploymentInfo:
-    """On-chain params for a vault: script address, pool policy/asset ids (from pool_id), reference UTXO."""
+    """On-chain params for a vault: script address, pool policy id and pool_name (from pool_id), reference UTXO."""
 
     script_address: str
     factory_policy_id: str
-    factory_nft_asset_name: str
+    pool_name: str  # asset_name from pool_id (policy_id.pool_name); identifies the vault NFT
     reference_utxo_tx_id: Optional[str]
     reference_utxo_index: Optional[int]
     manager_pkh: Optional[str]
 
 
 def parse_pool_id(pool_id: Optional[str]) -> tuple[str, str]:
-    """Split vault.pool_id ('policy_id.asset_name') into policy_id and asset_name hex."""
+    """Split vault.pool_id ('policy_id.pool_name') into policy_id and pool_name hex."""
     if not pool_id or "." not in pool_id:
         return "", ""
     parts = pool_id.strip().split(".", 1)
@@ -41,8 +41,8 @@ def get_vault_deployment_info(db: Session, vault_id: str) -> Optional[VaultDeplo
     if not vault or not vault.address:
         return None
 
-    factory_policy_id, factory_nft_asset_name = parse_pool_id(vault.pool_id)
-    if not factory_policy_id or not factory_nft_asset_name:
+    factory_policy_id, pool_name = parse_pool_id(vault.pool_id)
+    if not factory_policy_id or not pool_name:
         return None
 
     ref_tx_id: Optional[str] = None
@@ -55,7 +55,7 @@ def get_vault_deployment_info(db: Session, vault_id: str) -> Optional[VaultDeplo
     return VaultDeploymentInfo(
         script_address=vault.address.strip(),
         factory_policy_id=factory_policy_id,
-        factory_nft_asset_name=factory_nft_asset_name,
+        pool_name=pool_name,
         reference_utxo_tx_id=ref_tx_id,
         reference_utxo_index=ref_index,
         manager_pkh=vault.manager_pkh.strip() if vault.manager_pkh else None,

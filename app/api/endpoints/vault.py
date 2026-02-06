@@ -278,7 +278,7 @@ def get_vaults_by_status(
       - max_drawdown: Vault max drawdown (optional)
       - start_time: Vault start time
 
-      *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
+      *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
     """
     # Validate and adjust pagination parameters
     page = max(1, page)
@@ -345,7 +345,7 @@ def get_vault_info(
     - trade_per_month: Average transactions per month
     - decision_cycle: Decision cycle from trade strategy
 
-    *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
+    *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
     """
     id = id.strip()
     # check if id is a valid uuid
@@ -479,7 +479,7 @@ def get_vault_values(
     - t (timestamps): List of timestamps
     - c (closing prices): List of closing prices
 
-    *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
+    *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
     """
     id = id.lower().strip()
     # check if id is a valid uuid
@@ -574,7 +574,7 @@ def get_vault_positions(
       - close_time: Position close_time
       - status: Position status ("open" or "closed")
 
-    *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
+    *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
     """
     id = id.lower().strip()
     # check if id is a valid uuid
@@ -713,7 +713,7 @@ def withdraw_from_vault(
 
     *Sample request body:*
     {
-        "vault_id": "eadbf7f3-944d-4d14-bef9-5549d9b26c8b",
+        "vault_id": "e13d48c8-9725-4405-8746-b84be7acc5c2",
         "wallet_address": "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm",
         "amount_ada": 100.0
     }
@@ -756,7 +756,7 @@ def get_vault_contribute(
     - profit_rate: Profit rate of the user
     - is_redeemed: Whether the user has redeemed their position (one-time withdrawal)
 
-    *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
+    *Sample vault ID:* e13d48c8-9725-4405-8746-b84be7acc5c2
     *Sample wallet address:* addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm
     """
     id = id.strip().lower()
