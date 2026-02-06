@@ -24,7 +24,7 @@ venv
 *.env
 .agent
 .cursor
-
+secret/*
 # dev folders
 notebooks
 test.py

@@ -131,8 +131,9 @@ class VaultWithdrawResponse(CustomBaseModel):
     reason: Optional[str] = None
 
 
-class VaultUserEarning(CustomBaseModel):
+class VaultContributeResponse(CustomBaseModel):
     """User earning info for a specific vault"""
 
     total_deposit: float = 0.0
+    profit_rate: float = 0.0
     is_redeemed: bool = False

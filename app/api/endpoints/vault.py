@@ -11,18 +11,19 @@ from sqlalchemy.orm import Session
 from app.core.router_decorated import APIRouter
 from app.core.cache import cache
 from app.db.session import get_db
-from app.schemas.vault import (
-    VaultInfo,
-    VaultListResponse,
-    VaultListItem,
-    VaultPosition,
-    VaultPositionsResponse,
-    VaultStats,
-    VaultUserEarning,
-    VaultValuesResponse,
-    VaultWithdrawRequest,
-    VaultWithdrawResponse,
-)
+import app.schemas.vault as schemas
+#  (
+#     VaultInfo,
+#     VaultListResponse,
+#     VaultListItem,
+#     VaultPosition,
+#     VaultPositionsResponse,
+#     VaultStats,
+#     VaultContributeResponse,
+#     VaultValuesResponse,
+#     VaultWithdrawRequest,
+#     VaultWithdrawResponse,
+# )
 from app.services import price_cache
 from app.services.vault_withdraw import perform_vault_withdraw
 
@@ -234,7 +235,7 @@ def _get_vault_stats_data(
 @router.get(
     "",
     tags=group_tags,
-    response_model=VaultListResponse,
+    response_model=schemas.VaultListResponse,
     status_code=http_status.HTTP_200_OK,
 )
 def get_vaults_by_status(
@@ -250,7 +251,7 @@ def get_vaults_by_status(
         None, description="Number of items to skip (alternative to page)"
     ),
     db: Session = Depends(get_db),
-) -> VaultListResponse:
+) -> schemas.VaultListResponse:
     """
     Get list of vaults filtered by status.
 
@@ -288,7 +289,7 @@ def get_vaults_by_status(
     vaults = []
     for item in data["items"]:
         vaults.append(
-            VaultListItem(
+            schemas.VaultListItem(
                 id=item.get("id", ""),
                 state=item.get("state", ""),
                 icon_url=item.get("icon_url"),
@@ -305,19 +306,19 @@ def get_vaults_by_status(
             )
         )
     total = int(data.get("total", 0) or 0)
-    return VaultListResponse(vaults=vaults, total=total, page=page, limit=limit)
+    return schemas.VaultListResponse(vaults=vaults, total=total, page=page, limit=limit)
 
 
 @router.get(
     "/{id}/info",
     tags=group_tags,
-    response_model=VaultInfo,
+    response_model=schemas.VaultInfo,
     status_code=http_status.HTTP_200_OK,
 )
 def get_vault_info(
     id: str,
     db: Session = Depends(get_db),
-) -> VaultInfo:
+) -> schemas.VaultInfo:
     """
     Get vault information.
 
@@ -383,19 +384,19 @@ def get_vault_info(
         }
     )
 
-    return VaultInfo(**item)
+    return schemas.VaultInfo(**item)
 
 
 @router.get(
     "/{id}/stats",
     tags=group_tags,
-    response_model=VaultStats,
+    response_model=schemas.VaultStats,
     status_code=http_status.HTTP_200_OK,
 )
 def get_vault_stats(
     id: str,
     db: Session = Depends(get_db),
-) -> VaultStats:
+) -> schemas.VaultStats:
     """
     Get complete vault statistics.
 
@@ -436,13 +437,13 @@ def get_vault_stats(
     if not stats_data:
         raise HTTPException(status_code=404, detail="Vault not found")
 
-    return VaultStats(**stats_data)
+    return schemas.VaultStats(**stats_data)
 
 
 @router.get(
     "/{id}/values",
     tags=group_tags,
-    response_model=VaultValuesResponse,
+    response_model=schemas.VaultValuesResponse,
     status_code=http_status.HTTP_200_OK,
 )
 def get_vault_values(
@@ -459,7 +460,7 @@ def get_vault_values(
         None, description="Number of bars to return from end"
     ),
     db: Session = Depends(get_db),
-) -> VaultValuesResponse:
+) -> schemas.VaultValuesResponse:
     """
     Get vault values in TradingView format.
 
@@ -522,18 +523,18 @@ def get_vault_values(
     except Exception as e:
         print(f"Database error: {str(e)}")
     if not results:
-        return VaultValuesResponse(s="no_data", t=[], c=[])
+        return schemas.VaultValuesResponse(s="no_data", t=[], c=[])
 
     timestamps = [int(row.timestamp) for row in results]
     closing_prices = [float(row.closing_price) for row in results]
 
-    return VaultValuesResponse(s="ok", t=timestamps, c=closing_prices)
+    return schemas.VaultValuesResponse(s="ok", t=timestamps, c=closing_prices)
 
 
 @router.get(
     "/{id}/positions",
     tags=group_tags,
-    response_model=VaultPositionsResponse,
+    response_model=schemas.VaultPositionsResponse,
     status_code=http_status.HTTP_200_OK,
 )
 def get_vault_positions(
@@ -547,7 +548,7 @@ def get_vault_positions(
         None, description="Number of items to skip (alternative to page)"
     ),
     db: Session = Depends(get_db),
-) -> VaultPositionsResponse:
+) -> schemas.VaultPositionsResponse:
     """
     Get vault trade positions.
 
@@ -691,13 +692,13 @@ def get_vault_positions(
 @router.post(
     "/withdraw",
     tags=group_tags,
-    response_model=VaultWithdrawResponse,
+    response_model=schemas.VaultWithdrawResponse,
     status_code=http_status.HTTP_200_OK,
 )
 def withdraw_from_vault(
-    payload: VaultWithdrawRequest,
+    payload: schemas.VaultWithdrawRequest,
     db: Session = Depends(get_db),
-) -> VaultWithdrawResponse:
+) -> schemas.VaultWithdrawResponse:
     """
     Trigger a vault withdraw if the user still has withdrawable capital.
     Payload:
@@ -731,18 +732,18 @@ def withdraw_from_vault(
 @router.get(
     "/{id}/contribute",
     tags=group_tags,
-    response_model=VaultUserEarning,
+    response_model=schemas.VaultContributeResponse,
     status_code=http_status.HTTP_200_OK,
 )
-def get_vault_user_earning(
+def get_vault_contribute(
     id: str,
     wallet_address: str = Query(
         ..., description="Wallet address of the user (required)"
     ),
     db: Session = Depends(get_db),
-) -> VaultUserEarning:
+) -> schemas.VaultContributeResponse:
     """
-    Get user's earning info for a specific vault.
+    Get user's contribute info for a specific vault.
 
     Path Parameters:
     - id: Vault UUID
@@ -752,6 +753,7 @@ def get_vault_user_earning(
 
     Returns:
     - total_deposit: Total amount deposited by the user
+    - profit_rate: Profit rate of the user
     - is_redeemed: Whether the user has redeemed their position (one-time withdrawal)
 
     *Sample vault ID:* eadbf7f3-944d-4d14-bef9-5549d9b26c8b
@@ -771,6 +773,7 @@ def get_vault_user_earning(
         f"""
         SELECT 
             ue.total_deposit,
+            ue.total_withdrawal / ue.total_deposit - 1 as profit_rate,
             ue.is_redeemed
         FROM proddb.user_earnings ue
         WHERE ue.vault_id = '{id}' AND ue.wallet_address = '{wallet_address}'
@@ -781,12 +784,14 @@ def get_vault_user_earning(
     
     if not result:
         # Return default values if no record found
-        return VaultUserEarning(
-            total_deposit=0.0,
+        return schemas.VaultContributeResponse(
+            total_deposit=0,
+            profit_rate=25,
             is_redeemed=False,
         )
     
-    return VaultUserEarning(
-        total_deposit=round(float(result.total_deposit), 2) if result.total_deposit else 0.0,
+    return schemas.VaultContributeResponse(
+        total_deposit=round(float(result.total_deposit), 6) if result.total_deposit else 0.0,
+        profit_rate=round(float(result.profit_rate), 6) if result.profit_rate else 0.0,
         is_redeemed=bool(result.is_redeemed) if result.is_redeemed is not None else False,
     )
