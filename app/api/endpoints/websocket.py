@@ -430,9 +430,6 @@ async def _handle_vault_deposit_submission(
 
     if not accepted:
         print(f"[vault-deposit] invalid: tx_id={tx_id} vault_id={vault_id} -> {reason}")
-    if accepted:
-        await websocket.send_json({"message": "oke"})
-    else:
         await websocket.send_json({"message": "invalid", "reason": reason})
 
 

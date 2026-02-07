@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import cbor2
 from blockfrost.utils import ApiError, Namespace
-from pycardano import Address, hash
+from pycardano import Address, hash, RawPlutusData
 
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -48,25 +48,26 @@ def send_vault_deposit_done_result(
     message: str,
     reason: Optional[str] = None,
     data: Optional[Dict[str, Any]] = None,
+    # ws: Any = None,
 ) -> None:
     """Send the final result to the client that submitted this vault_deposit (if registered)."""
+    # if ws is None:
     ws = vault_deposit_done_callbacks.pop((tx_id, vault_id), None)
-    if ws is not None:
-        asyncio.create_task(_safe_send_done(ws, message, reason, data))
-
-
-async def _safe_send_done(
-    websocket: Any,
-    message: str,
-    reason: Optional[str] = None,
-    data: Optional[Dict[str, Any]] = None,
-) -> None:
-    try:
-        payload = {"message": message}
+    if ws:
+        payload = {
+            "message": message,
+        }
         if reason is not None:
             payload["reason"] = reason
-        if data:
-            payload.update(data)
+        if data is not None:
+            print("data", data)
+            for key, value in data.items():
+                payload[key] = value
+        asyncio.create_task(_safe_send_done(ws, payload))
+
+
+async def _safe_send_done(websocket: Any, payload: Dict[str, Any]) -> None:
+    try:
         await websocket.send_json(payload)
     except Exception:
         pass
@@ -83,6 +84,8 @@ async def queue_vault_deposit_request(
     """
     key = (tx_id, vault_id)
     if key in vault_deposit_queue_keys:
+        if done_websocket:
+            await done_websocket.send_json({"message": "already_queued"})
         return True, "already queued"
 
     loop = asyncio.get_running_loop()
@@ -90,14 +93,19 @@ async def queue_vault_deposit_request(
         None, _ensure_vault_log_pending, tx_id, wallet_address, vault_id
     )
     if status == "completed":
+        if done_websocket:
+            await done_websocket.send_json({"message": "already_completed"})
         return True, "already completed"
     if status == "already_pending":
+        if done_websocket:
+            await done_websocket.send_json({"message": "already_pending"})
         return True, "already pending (in queue or processing)"
 
     # status == "inserted": only add to process queue when not already in DB/queue
     vault_deposit_queue_keys.add(key)
     if done_websocket is not None:
         register_vault_deposit_done_callback(tx_id, vault_id, done_websocket)
+        await done_websocket.send_json({"message": "accepted"})
     await vault_deposit_queue.put((tx_id, wallet_address, vault_id, time.time()))
     queue_size = vault_deposit_queue.qsize()
     if queue_size >= VAULT_DEPOSIT_WARN_THRESHOLD:
@@ -169,6 +177,7 @@ async def _ensure_vault_deposit_worker() -> None:
 
 async def _vault_deposit_worker() -> None:
     global vault_deposit_worker_task
+    
     while True:
         try:
             tx_id, wallet_address, vault_id, received_at = (
@@ -238,11 +247,6 @@ async def _process_vault_deposit_item(
         send_vault_deposit_done_result(tx_id, vault_id, "failed", str(e))
         return True
 
-def normalize_field(f):
-    if isinstance(f, bytes):
-        return f.hex()
-    return str(f)
-
 # todo: optimize skip decoded.value, from raw to fields and normalize
 def _parse_datum(datum_hex: str) -> Tuple[int, List[bytes]]:
     """
@@ -253,18 +257,21 @@ def _parse_datum(datum_hex: str) -> Tuple[int, List[bytes]]:
       - [constructor_index, [field0, field1]].
     Returns (constructor, list of field bytes).
     """
-    raw = bytes.fromhex(datum_hex)
-    decoded = cbor2.loads(raw)
-    constructor, fields = decoded.value
+    datum = RawPlutusData.from_cbor(bytes.fromhex(datum_hex)).to_dict()
 
-    if not fields:
+    if not datum["fields"]:
         raise ValueError("datum has no fields")
 
-    result = {
-        "constructor": constructor,
-        "fields": [normalize_field(f) for f in fields]
+    fields = []
+    for field in datum["fields"]:
+        for k, v in field.items():
+            # if k == 'bytes':
+            fields.append(v)
+            break
+    return {
+        "constructor": datum["constructor"],
+        "fields": fields
     }
-    return result
 
 
 def _validate_vault_deposit_onchain(

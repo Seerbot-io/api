@@ -9,7 +9,7 @@ function getWebSocketUrl() {
 }
 
 // Set default WebSocket URL
-(function() {
+(function () {
     const wsUrlInput = document.getElementById('wsUrl');
     if (wsUrlInput && !wsUrlInput.value) {
         wsUrlInput.value = getWebSocketUrl();
@@ -36,9 +36,9 @@ function addMessage(type, title, body) {
     const messagesDiv = document.getElementById('messages');
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
-    
+
     const time = new Date().toLocaleTimeString();
-    
+
     // Special formatting for token_info messages
     let bodyContent = '';
     if (type === 'info' && title === 'Token Info Update' && body.logo_url !== undefined) {
@@ -48,7 +48,7 @@ function addMessage(type, title, body) {
     } else {
         bodyContent = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
     }
-    
+
     messageDiv.innerHTML = `
         <div class="message-header">
             <span>${title}</span>
@@ -56,9 +56,9 @@ function addMessage(type, title, body) {
         </div>
         <div class="message-body">${bodyContent}</div>
     `;
-    
+
     messagesDiv.insertBefore(messageDiv, messagesDiv.firstChild);
-    
+
     // Keep only last 50 messages
     while (messagesDiv.children.length > 50) {
         messagesDiv.removeChild(messagesDiv.lastChild);
@@ -66,24 +66,24 @@ function addMessage(type, title, body) {
 }
 
 function formatNoticeMessage(data) {
-    const iconHtml = data.icon ? 
+    const iconHtml = data.icon ?
         `<div class="notice-icon-container">
             <img src="${data.icon}" alt="Notice icon" class="notice-icon" onerror="this.style.display='none'">
         </div>` : '';
-    
+
     const typeColors = {
         'info': '#2196F3',
         'account': '#FF9800',
         'signal': '#4CAF50'
     };
     const typeColor = typeColors[data.type] || '#666';
-    
+
     const metaDataHtml = data.meta_data && Object.keys(data.meta_data).length > 0 ?
         `<div class="notice-meta">
             <strong>Metadata:</strong>
             <pre style="margin: 5px 0; padding: 8px; background: #f5f5f5; border-radius: 4px; font-size: 12px;">${JSON.stringify(data.meta_data, null, 2)}</pre>
         </div>` : '';
-    
+
     return `
 ${iconHtml}
 <div class="notice-content">
@@ -103,11 +103,11 @@ ${iconHtml}
 }
 
 function formatTokenInfoMessage(data) {
-    const logoHtml = data.logo_url ? 
+    const logoHtml = data.logo_url ?
         `<div class="token-logo-container">
             <img src="${data.logo_url}" alt="${data.symbol}" class="token-logo" onerror="this.style.display='none'">
         </div>` : '';
-    
+
     // Helper to convert string to number safely
     const toNumber = (val) => {
         if (val === null || val === undefined || val === '') return 0;
@@ -118,7 +118,7 @@ function formatTokenInfoMessage(data) {
         }
         return 0;
     };
-    
+
     const formatNumber = (num) => {
         if (num === null || num === undefined || num === '') return 'N/A';
         const n = toNumber(num);
@@ -127,23 +127,23 @@ function formatTokenInfoMessage(data) {
         if (n >= 1e3) return (n / 1e3).toFixed(2) + 'K';
         return n.toFixed(6);
     };
-    
+
     const formatPrice = (price) => {
         if (price === null || price === undefined || price === '') return 'N/A';
         const p = toNumber(price);
         return p.toFixed(6);
     };
-    
+
     const formatChange = (change) => {
         if (change === null || change === undefined || change === '') return 'N/A';
         const c = toNumber(change);
         const sign = c >= 0 ? '+' : '';
         return `${sign}$${c.toFixed(6)}`;
     };
-    
+
     const changeValue = toNumber(data.change_24h);
     const changeColor = changeValue >= 0 ? '#4caf50' : '#f44336';
-    
+
     return `
 ${logoHtml}
 <div class="token-info-grid">
@@ -204,7 +204,7 @@ function updateChannelForm() {
     const unsubscribeBtn = document.getElementById('unsubscribeBtn');
     const subscribeButtonGroup = document.getElementById('subscribeButtonGroup');
     const vaultDepositSubmitBtn = document.getElementById('vaultDepositSubmitBtn');
-    
+
     if (channelType === 'ohlc') {
         barsForm.style.display = 'block';
         tokenForm.style.display = 'none';
@@ -244,25 +244,25 @@ function updateChannelForm() {
 
 function buildChannel() {
     const channelType = document.getElementById('channelType').value;
-    
+
     if (channelType === 'ohlc') {
         const symbol = document.getElementById('barsSymbol').value.trim();
         const resolution = document.getElementById('resolution').value;
-        
+
         if (!symbol || !resolution) {
             return null;
         }
-        
+
         // Convert slashes to underscores for channel format
         const channelSymbol = symbol.replace(/\//g, '_');
         return `ohlc:${channelSymbol}|${resolution}`;
     } else if (channelType === 'token_info') {
         const symbol = document.getElementById('tokenSymbol').value.trim();
-        
+
         if (!symbol) {
             return null;
         }
-        
+
         return `token_info:${symbol}`;
     } else if (channelType === 'notices') {
         // Format: notices or notices:{type}|{after_id}|{order}|{limit}
@@ -272,22 +272,22 @@ function buildChannel() {
         const afterId = document.getElementById('noticeAfterId').value.trim();
         const order = document.getElementById('noticeOrder').value;
         const limit = document.getElementById('noticeLimit').value.trim();
-        
+
         // Check if we need to include any parameters
         const hasType = noticeType && noticeType !== '';
         const hasAfterId = afterId && afterId !== '';
         const hasCustomOrder = order && order !== 'desc';
         const hasCustomLimit = limit && limit !== '' && limit !== '100';
-        
+
         // If no custom parameters, return simple 'notices'
         if (!hasType && !hasAfterId && !hasCustomOrder && !hasCustomLimit) {
             return 'notices';
         }
-        
+
         // Build parts array - include all parameters up to the last one specified
         const parts = [];
         parts.push(noticeType || ''); // Always include type (even if empty)
-        
+
         if (hasAfterId || hasCustomOrder || hasCustomLimit) {
             parts.push(afterId || ''); // Include after_id if any later param is set
             if (hasCustomOrder || hasCustomLimit) {
@@ -297,28 +297,28 @@ function buildChannel() {
                 }
             }
         }
-        
+
         return `notices:${parts.join('|')}`;
     }
-    
+
     return null;
 }
 
 function connect() {
     const url = document.getElementById('wsUrl').value;
-    
+
     if (ws && ws.readyState === WebSocket.OPEN) {
         addMessage('error', 'Error', 'Already connected!');
         return;
     }
-    
+
     updateStatus('Connecting...', 'connecting');
     addMessage('info', 'Connection', `Connecting to ${url}...`);
-    
+
     try {
         ws = new WebSocket(url);
-        
-        ws.onopen = function() {
+
+        ws.onopen = function () {
             updateStatus('Connected', 'connected');
             addMessage('success', 'Connection', 'WebSocket connected successfully!');
             document.getElementById('connectBtn').disabled = true;
@@ -328,11 +328,11 @@ function connect() {
             const vaultDepositSubmitBtn = document.getElementById('vaultDepositSubmitBtn');
             if (vaultDepositSubmitBtn) vaultDepositSubmitBtn.disabled = false;
         };
-        
-        ws.onmessage = function(event) {
+
+        ws.onmessage = function (event) {
             try {
                 const data = JSON.parse(event.data);
-                
+
                 // Handle subscription status
                 if (data.status === 'subscribed') {
                     const channel = data.channel;
@@ -348,11 +348,13 @@ function connect() {
                     addMessage('info', 'Subscription', data);
                 } else if (data.error) {
                     addMessage('error', 'Error', data);
-                } else if (data.message === 'oke' || data.message === 'invalid' || data.message === 'error' || data.message === 'failed') {
-                    const titles = { oke: 'Vault deposit', invalid: 'Vault deposit invalid', error: 'Vault deposit error', failed: 'Vault deposit failed (on-chain)' };
+                } else if (data.message === 'oke' || data.message === 'invalid' || data.message === 'error' || data.message === 'failed' || data.message === 'accepted' || data.message === 'already_queued' || data.message === 'already_completed' || data.message === 'already_pending') {
+                    const titles = { oke: 'Vault deposit success', invalid: 'Vault deposit invalid', error: 'Vault deposit error', failed: 'Vault deposit failed (on-chain)', accepted: 'Vault deposit accepted', already_queued: 'Vault deposit already queued', already_completed: 'Vault deposit already completed', already_pending: 'Vault deposit already pending' };
                     const title = titles[data.message] || data.message;
-                    const type = (data.message === 'oke') ? 'success' : 'error';
-                    const body = (data.detail || data.reason) ? { message: data.message, reason: data.reason || data.detail } : { message: data.message };
+                    const type = (data.message === 'oke' || data.message === 'accepted') ? 'success' : (data.message.startsWith('already_') ? 'info' : 'error');
+                    const body = { message: data.message };
+                    if (data.reason) body.reason = data.reason;
+                    if (data.depositAmount !== undefined) body.depositAmount = data.depositAmount;
                     addMessage(type, title, body);
                 } else if (data.channel && data.type && data.data) {
                     // This is a channel update
@@ -410,13 +412,13 @@ function connect() {
                 addMessage('error', 'Parse Error', `Failed to process message: ${e.message}\n\nRaw data: ${event.data}`);
             }
         };
-        
-        ws.onerror = function(error) {
+
+        ws.onerror = function (error) {
             addMessage('error', 'WebSocket Error', 'Connection error occurred');
             console.error('WebSocket error:', error);
         };
-        
-        ws.onclose = function(event) {
+
+        ws.onclose = function (event) {
             updateStatus('Disconnected', 'disconnected');
             addMessage('info', 'Connection', `WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
             document.getElementById('connectBtn').disabled = false;
@@ -428,7 +430,7 @@ function connect() {
             subscriptions.clear();
             updateSubscriptionsList();
         };
-        
+
     } catch (error) {
         updateStatus('Error', 'disconnected');
         addMessage('error', 'Connection Error', error.message);
@@ -447,19 +449,19 @@ function subscribe() {
         addMessage('error', 'Error', 'Not connected!');
         return;
     }
-    
+
     const channel = buildChannel();
-    
+
     if (!channel) {
         addMessage('error', 'Error', 'Please fill in all required fields');
         return;
     }
-    
+
     const message = {
         action: 'subscribe',
         channel: channel
     };
-    
+
     ws.send(JSON.stringify(message));
     addMessage('info', 'Sent', `Subscribe: ${JSON.stringify(message, null, 2)}`);
 }
@@ -469,14 +471,14 @@ function unsubscribe() {
         addMessage('error', 'Error', 'Not connected!');
         return;
     }
-    
+
     const channel = buildChannel();
-    
+
     if (!channel) {
         addMessage('error', 'Error', 'Please fill in all required fields');
         return;
     }
-    
+
     unsubscribeChannel(channel);
 }
 
@@ -511,64 +513,64 @@ function unsubscribeChannel(channel) {
         addMessage('error', 'Error', 'Not connected!');
         return;
     }
-    
+
     const message = {
         action: 'unsubscribe',
         channel: channel
     };
-    
+
     ws.send(JSON.stringify(message));
     addMessage('info', 'Sent', `Unsubscribe: ${JSON.stringify(message, null, 2)}`);
 }
 
 // Allow Enter key to trigger actions
-document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('wsUrl').addEventListener('keypress', function(e) {
+document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('wsUrl').addEventListener('keypress', function (e) {
         if (e.key === 'Enter') connect();
     });
-    
+
     const barsSymbolEl = document.getElementById('barsSymbol');
     if (barsSymbolEl) {
-        barsSymbolEl.addEventListener('keypress', function(e) {
+        barsSymbolEl.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') subscribe();
         });
     }
-    
+
     const tokenSymbolEl = document.getElementById('tokenSymbol');
     if (tokenSymbolEl) {
-        tokenSymbolEl.addEventListener('keypress', function(e) {
+        tokenSymbolEl.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') subscribe();
         });
     }
-    
+
     const resolutionEl = document.getElementById('resolution');
     if (resolutionEl) {
-        resolutionEl.addEventListener('keypress', function(e) {
+        resolutionEl.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') subscribe();
         });
     }
-    
+
     const noticeTypeEl = document.getElementById('noticeType');
     if (noticeTypeEl) {
-        noticeTypeEl.addEventListener('keypress', function(e) {
+        noticeTypeEl.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') subscribe();
         });
     }
-    
+
     const noticeAfterIdEl = document.getElementById('noticeAfterId');
     if (noticeAfterIdEl) {
-        noticeAfterIdEl.addEventListener('keypress', function(e) {
+        noticeAfterIdEl.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') subscribe();
         });
     }
-    
+
     const noticeLimitEl = document.getElementById('noticeLimit');
     if (noticeLimitEl) {
-        noticeLimitEl.addEventListener('keypress', function(e) {
+        noticeLimitEl.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') subscribe();
         });
     }
-    
+
     // Initialize form display
     updateChannelForm();
 });

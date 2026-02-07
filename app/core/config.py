@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # CARDANO
     BLOCKFROST_API_KEY: str
-    CARDANO_NETWORK: str = "mainnet"
+    CARDANO_NETWORK: Network = Network.MAINNET
 
     # Token price cache settings
     TOKEN_CACHE_ENABLE_BACKGROUND_REFRESH: bool = False
@@ -62,12 +62,16 @@ class Settings(BaseSettings):
     @field_validator("CARDANO_NETWORK", mode="before")
     @classmethod
     def map_mode(cls, v):
-        if v == "mainnet":
-            return Network.MAINNET
-        elif v == "preprod":
-            return Network.TESTNET
-        else:
-            raise ValueError(f"Invalid network: {v}")
-        return v
+        if isinstance(v, Network):
+            return v
+
+        if isinstance(v, str):
+            v = v.lower()
+            if v == "mainnet":
+                return Network.MAINNET
+            if v in ("preprod", "testnet"):
+                return Network.TESTNET
+
+        raise ValueError(f"Invalid network: {v}")
 # Instantiate the settings
 settings = Settings()  # type: ignore
