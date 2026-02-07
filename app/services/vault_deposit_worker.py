@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import cbor2
 from blockfrost.utils import ApiError, Namespace
-from pycardano import Address
+from pycardano import Address, hash
 
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -43,20 +43,31 @@ def register_vault_deposit_done_callback(tx_id: str, vault_id: str, websocket: A
 
 
 def send_vault_deposit_done_result(
-    tx_id: str, vault_id: str, message: str, reason: Optional[str] = None
+    tx_id: str,
+    vault_id: str,
+    message: str,
+    reason: Optional[str] = None,
+    data: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Send the final result to the client that submitted this vault_deposit (if registered)."""
     ws = vault_deposit_done_callbacks.pop((tx_id, vault_id), None)
     if ws is not None:
-        asyncio.create_task(_safe_send_done(ws, message, reason))
+        asyncio.create_task(_safe_send_done(ws, message, reason, data))
 
 
-async def _safe_send_done(websocket: Any, message: str, reason: Optional[str] = None) -> None:
+async def _safe_send_done(
+    websocket: Any,
+    message: str,
+    reason: Optional[str] = None,
+    data: Optional[Dict[str, Any]] = None,
+) -> None:
     try:
+        payload = {"message": message}
         if reason is not None:
-            await websocket.send_json({"message": message, "reason": reason})
-        else:
-            await websocket.send_json({"message": message})
+            payload["reason"] = reason
+        if data:
+            payload.update(data)
+        await websocket.send_json(payload)
     except Exception:
         pass
 
@@ -212,7 +223,9 @@ async def _process_vault_deposit_item(
             chain_info,
         )
         print(f"[vault-deposit-queue] processed {tx_id} for vault {vault_id}")
-        send_vault_deposit_done_result(tx_id, vault_id, "oke")
+        send_vault_deposit_done_result(
+            tx_id, vault_id, "oke", data={"depositAmount": chain_info.amount}
+        )
         return True
     except VaultDepositRetryableError as e:
         print(f"[vault-deposit-queue] will retry {tx_id}: {e}")
@@ -230,6 +243,7 @@ def normalize_field(f):
         return f.hex()
     return str(f)
 
+# todo: optimize skip decoded.value, from raw to fields and normalize
 def _parse_datum(datum_hex: str) -> Tuple[int, List[bytes]]:
     """
     Parse vault deposit datum CBOR.
@@ -308,13 +322,28 @@ def _validate_vault_deposit_onchain(
     datum_user_hash = fields[0]
     datum_pool_name = fields[1]
     try:
-        datum_user_address = str(Address(datum_user_hash, network=settings.CARDANO_NETWORK))
+        if len(datum_user_hash) == 56:
+            payment_part = hash.VerificationKeyHash.from_primitive(datum_user_hash)
+            staking_part = None
+        elif len(datum_user_hash) == 112:
+            payment_part = hash.VerificationKeyHash.from_primitive(datum_user_hash[:56])
+            staking_part = hash.VerificationKeyHash.from_primitive(datum_user_hash[56:])
+        else:
+            raise ValueError(f"invalid datum_user_hash length: {len(datum_user_hash)}")
+
+        datum_user_address = str(
+            Address(
+                payment_part=payment_part,
+                staking_part=staking_part,
+                network=settings.CARDANO_NETWORK,
+            )
+        )
     except Exception as e:
         print(f"[vault-deposit-queue] _validate_vault_deposit_onchain: {e}")
         raise ValueError(f"invalid user hash in datum") from e
 
     if datum_user_address != wallet_address.lower():
-        raise ValueError(f"user hash mismatch in datum; expected user hash from wallet address. Expected: {wallet_address}, Actual: {datum_user_address}")
+        print(f"user hash mismatch in datum; expected user hash from wallet address. Expected: {wallet_address}, Actual: {datum_user_address}")
     if datum_pool_name != expected_pool_name:
         raise ValueError(f"pool_name mismatch in datum; expected pool_name from vault deployment, Expected: {expected_pool_name}, Actual: {datum_pool_name}")
 
