@@ -190,7 +190,7 @@ def get_indicators(
     ]
 
     # Format pair for response (USDM_ADA -> USDM/ADA)
-    response_pair = pair.strip().replace("_", "/").upper()
+    response_pair = pair.strip().replace("_", "/")
 
     return schemas.IndicatorsResponse(
         pair=response_pair, timeframe=timeframe_lower, data=data
@@ -719,7 +719,7 @@ def search_pairs(
         for row in results:
             pair = str(row.pair) if row.pair is not None else ""
             if pair:
-                pair_clean = pair.strip().replace("_", "/").upper()
+                pair_clean = pair.strip().replace("_", "/")
                 symbols.append(
                     {
                         "pair": pair_clean,
@@ -774,7 +774,7 @@ def resolve_pair(pair: str, db: Session = Depends(get_db)):
 def get_bars(
     pair: str,
     resolution: str,
-    from_: int | None = None,
+    from_: int | None = None, # todo: fix when update 
     to: int | None = None,
     count_back: Optional[int] = None,
 ):
@@ -852,7 +852,7 @@ def _get_tokens_bulk(symbols: List[str]) -> List[schemas.TokenMarketInfo]:
     symbol_map: Dict[str, str] = {}
     normalized_symbols: List[str] = []
     for s in symbols:
-        normalized = s.strip().upper()
+        normalized = s.strip()
         if normalized:
             symbol_map[normalized] = s  # Map normalized back to original for ordering
             if normalized not in normalized_symbols:
@@ -875,7 +875,6 @@ def _get_tokens_bulk(symbols: List[str]) -> List[schemas.TokenMarketInfo]:
     for symbol in all_symbols:
         info = price_cache.get_token_info(symbol)
         price = price_cache.get_token_price(symbol)
-
         if info:
             info_dict[symbol] = info
         if price:
@@ -909,9 +908,9 @@ def _get_tokens_bulk(symbols: List[str]) -> List[schemas.TokenMarketInfo]:
 
     # Return results in the same order as requested symbols (using original case)
     return [
-        result_dict.get(s.strip().upper())
+        result_dict.get(s.strip())
         for s in symbols
-        if result_dict.get(s.strip().upper())
+        if result_dict.get(s.strip())
     ]
 
 
@@ -1022,7 +1021,6 @@ def get_trend(
     group by symbol
     """
     result = db.execute(text(query)).fetchall()
-
     # Placeholder values
     uptrend_pairs = {}
     downtrend_pairs = {}
@@ -1033,7 +1031,6 @@ def get_trend(
             uptrend_pairs[row.symbol] = score
         elif score < -1:
             downtrend_pairs[row.symbol] = -score
-
     uptrend_list = _generate_predict_list(uptrend_pairs)
     downtrend_list = _generate_predict_list(downtrend_pairs)
 

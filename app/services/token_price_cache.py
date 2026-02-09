@@ -150,7 +150,7 @@ class TokenPriceCacheManager:
 
     def _normalize_symbols(self, symbols: List[str]) -> List[str]:
         """Normalize and deduplicate symbols"""
-        normalized = [s.strip().upper() for s in symbols if s.strip()]
+        normalized = [s.strip() for s in symbols if s.strip()]
         # Remove duplicates while preserving order
         seen = set()
         return [s for s in normalized if s not in seen and not seen.add(s)]
@@ -179,7 +179,7 @@ class TokenPriceCacheManager:
 
             now = datetime.now()
             for token in tokens:
-                symbol = str(token.symbol).upper() if hasattr(token, "symbol") else ""
+                symbol = str(token.symbol) if hasattr(token, "symbol") else ""
                 if symbol:
                     result[symbol] = CachedTokenInfo(
                         id=str(token.id) if hasattr(token, "id") else "",
@@ -203,7 +203,7 @@ class TokenPriceCacheManager:
 
     def get_token_info(self, symbol: str) -> Optional[CachedTokenInfo]:
         """Get static token info, check cache first, then fetch from proddb.tokens if needed"""
-        symbol = symbol.strip().upper()
+        symbol = symbol.strip()
 
         # Quick check without lock (read-only)
         cached = self._info_cache.get(symbol)
@@ -431,7 +431,7 @@ class TokenPriceCacheManager:
 
     def get_token_price(self, symbol: str) -> Optional[CachedTokenPrice]:
         """Get token price data, check cache first, then fetch from coin_prices tables if needed"""
-        symbol = symbol.strip().upper()
+        symbol = symbol.strip()
 
         # Quick check without lock (read-only)
         cached = self._price_cache.get(symbol)
@@ -473,7 +473,7 @@ class TokenPriceCacheManager:
         Returns:
             Current price as float, or None if pair cannot be resolved
         """
-        pair = pair.strip().upper()
+        pair = pair.strip()
 
         # Parse pair
         if "/" not in pair:
