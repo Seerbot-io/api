@@ -10,13 +10,13 @@ from app.models.vault import Vault, VaultConfigUtxo
 
 @dataclass
 class VaultDeploymentInfo:
-    """On-chain params for a vault: script address, pool policy id and pool_name (from pool_id), reference UTXO."""
-
+    """On-chain params for a vault: script address, pool policy id and pool_name (from pool_id), config UTxO."""
     script_address: str
     factory_policy_id: str
     pool_name: str  # asset_name from pool_id (policy_id.pool_name); identifies the vault NFT
-    reference_utxo_tx_id: Optional[str]
-    reference_utxo_index: Optional[int]
+    contract: Optional[str]
+    config_utxo_tx_id: Optional[str]
+    config_utxo_index: Optional[int]
     manager_pkh: Optional[str]
 
 
@@ -45,18 +45,19 @@ def get_vault_deployment_info(db: Session, vault_id: str) -> Optional[VaultDeplo
     if not factory_policy_id or not pool_name:
         return None
 
-    ref_tx_id: Optional[str] = None
-    ref_index: Optional[int] = None
+    config_tx_id: Optional[str] = None
+    config_index: Optional[int] = None
     config_utxo = db.query(VaultConfigUtxo).filter(VaultConfigUtxo.vault_id == vault_id).first()
     if config_utxo and config_utxo.tx_hash is not None:
-        ref_tx_id = config_utxo.tx_hash.strip()
-        ref_index = config_utxo.utxo_id if config_utxo.utxo_id is not None else 0
+        config_tx_id = config_utxo.tx_hash.strip()
+        config_index = config_utxo.utxo_id if config_utxo.utxo_id is not None else 0
 
     return VaultDeploymentInfo(
         script_address=vault.address.strip(),
         factory_policy_id=factory_policy_id,
         pool_name=pool_name,
-        reference_utxo_tx_id=ref_tx_id,
-        reference_utxo_index=ref_index,
+        contract=vault.contract.strip() if vault.contract else None,
+        config_utxo_tx_id=config_tx_id,
+        config_utxo_index=config_index,
         manager_pkh=vault.manager_pkh.strip() if vault.manager_pkh else None,
     )

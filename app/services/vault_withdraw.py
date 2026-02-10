@@ -1,13 +1,14 @@
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Optional, Tuple
+from typing import Optional
+import time
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.vault import UserEarning
+from app.models.vault import UserEarning, VaultConfigUtxo
 from app.services.onchain_process import vault_withdraw_on_chain
-from app.services.vault_deployment import VaultDeploymentInfo, get_vault_deployment_info
+from app.services.vault_deployment import get_vault_deployment_info
 
 
 @dataclass
@@ -37,8 +38,11 @@ def perform_vault_withdraw(
     requested_amount_ada: Optional[float] = None,
 ) -> VaultWithdrawOutcome:
     """
-    Evaluate if the user can withdraw (total_withdrawal < total_deposit) for given vault.
-    When the user is eligible, call the on-chain withdraw stub and return the tx hash.
+    Withdraw ADA from the vault to the user's address.
+
+    One-time redeem semantics:
+    - Always withdraw the full `earning.current_value` (ignore `requested_amount_ada`).
+    - After a successful on-chain withdraw, set `earning.is_redeemed = True` and zero `current_value`.
     """
     vault_id = (vault_id or "").strip().lower()
     wallet = _normalize_address(wallet_address)
@@ -46,7 +50,7 @@ def perform_vault_withdraw(
         return VaultWithdrawOutcome(None, "vault_id and wallet_address are required")
 
     deployment = get_vault_deployment_info(db, vault_id)
-    if not deployment or not deployment.reference_utxo_tx_id:
+    if not deployment or not deployment.config_utxo_tx_id:
         return VaultWithdrawOutcome(None, "vault deployment info is incomplete")
 
     manager_pkh = deployment.manager_pkh
@@ -55,6 +59,7 @@ def perform_vault_withdraw(
 
     earning = (
         db.query(UserEarning)
+        .with_for_update()
         .filter(
             func.lower(UserEarning.wallet_address) == wallet,
             UserEarning.vault_id == vault_id,
@@ -63,33 +68,52 @@ def perform_vault_withdraw(
     )
     if not earning:
         return VaultWithdrawOutcome(None, "no earnings record for this vault and wallet")
+    if earning.is_redeemed:
+        return VaultWithdrawOutcome(None, "vault already redeemed for this wallet")
 
-    total_deposit = float(earning.total_deposit or 0.0)
-    total_withdrawal = float(earning.total_withdrawal or 0.0)
-    withdrawable_ada = total_deposit - total_withdrawal
+    withdrawable_ada = float(earning.current_value or 0.0)
     if withdrawable_ada <= 0:
-        return VaultWithdrawOutcome(None, "withdrawals already match deposits")
+        return VaultWithdrawOutcome(None, "current value is zero or negative")
 
-    if requested_amount_ada is None or requested_amount_ada <= 0:
-        target_ada = withdrawable_ada
-    else:
-        target_ada = min(requested_amount_ada, withdrawable_ada)
+    # One-time redeem: withdraw all current_value
+    target_ada = withdrawable_ada
 
     withdraw_amount = _ada_to_lovelace(target_ada)
-    if withdraw_amount <= 0:
-        return VaultWithdrawOutcome(None, "withdraw amount must be greater than zero")
+    # 0.5 ADA minimum
+    if withdraw_amount < 500_000:
+        return VaultWithdrawOutcome(None, "withdraw amount must be greater than 0.5 ADA")
 
-    config_tx = deployment.reference_utxo_tx_id
-    config_index = deployment.reference_utxo_index or 0
+    config_tx = deployment.config_utxo_tx_id
+    config_index = deployment.config_utxo_index or 0
 
     try:
-        tx_hash = vault_withdraw_on_chain(
+        chain_result = vault_withdraw_on_chain(
             vault_address=deployment.script_address,
             config_utxo_info=(config_tx, config_index),
             withdraw_amount=withdraw_amount,
             manager_pkh=manager_pkh,
+            wallet_address=wallet,
+            contract_name=deployment.contract,
         )
     except Exception as exc:
         return VaultWithdrawOutcome(None, f"on-chain withdraw failed: {exc}")
 
-    return VaultWithdrawOutcome(tx_hash, None)
+    # Update vault_config_utxo with the new config UTxO reference from the withdraw tx
+    config_row = (
+        db.query(VaultConfigUtxo)
+        .filter(VaultConfigUtxo.vault_id == vault_id)
+        .first()
+    )
+    if config_row:
+        config_row.vault_address = deployment.script_address
+        config_row.tx_hash = chain_result.new_config_tx
+        config_row.utxo_id = chain_result.new_config_index
+        config_row.update_time = int(time.time())
+
+    earning.total_withdrawal = (earning.total_withdrawal or 0.0) + target_ada
+    # earning.current_value = 0.0
+    earning.is_redeemed = True
+    earning.last_updated_timestamp = int(time.time())
+    db.commit()
+
+    return VaultWithdrawOutcome(chain_result.tx_hash, None)

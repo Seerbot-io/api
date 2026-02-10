@@ -2,8 +2,8 @@
 
 ## wallets.yaml: (wallet info)
 {network}:
- - {hash}:
-  address: {address} 
-  private_key: {private_key}
+  {hash}:
+    address: {address} 
+    private_key: {private_key_hash}
   
   

@@ -11,16 +11,19 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import text
 
+from app.core.config import settings
 from app.db.base import Base
 
+SCHEMA = settings.SCHEMA_2
 
 class Vault(Base):
-    """Model for vault table in proddb schema
+    """Model for vault table in {SCHEMA} schema
     Example:
     {
         "id": "550e8400-e29b-41d4-a716-446655440000",
         "name": "USDM Vault",
         "algorithm": "RSI over bought over sold",
+        "contract": "vault_v1",
         "address": "addr1...",
         "token_id": "lovelace",
         "total_fund": 1000000.0,
@@ -34,7 +37,7 @@ class Vault(Base):
     """
 
     __tablename__ = "vault"
-    __table_args__ = {"schema": "proddb"}
+    __table_args__ = {"schema": SCHEMA}
 
     id = Column(
         UUID(as_uuid=False),  # Stores as string in Python
@@ -56,12 +59,13 @@ class Vault(Base):
     summary = Column(String(255), nullable=True)
     pool_id = Column(String(255), nullable=True)  # "policy_id.asset_name" hex
     manager_pkh = Column(String(255), nullable=True)
+    contract = Column(String(255), nullable=True)
     max_users = Column(Integer, default=50, nullable=True)
     post_money_val = Column(BigInteger, default=0, nullable=True)
 
 
 class VaultPosition(Base):
-    """Model for vault_positions table in proddb schema
+    """Model for vault_positions table in {SCHEMA} schema
     Example:
     {
         "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -77,7 +81,7 @@ class VaultPosition(Base):
     """
 
     __tablename__ = "vault_positions"
-    __table_args__ = {"schema": "proddb"}
+    __table_args__ = {"schema": SCHEMA}
 
     id = Column(
         UUID(as_uuid=False),
@@ -85,7 +89,7 @@ class VaultPosition(Base):
         server_default=text("chatbot.uuid_generate_v4()"),
     )
     vault_id = Column(
-        UUID(as_uuid=False), ForeignKey("proddb.vault.id"), nullable=False, index=True
+        UUID(as_uuid=False), ForeignKey(f"{SCHEMA}.vault.id"), nullable=False, index=True
     )
     start_time = Column(BigInteger, nullable=False, index=True)
     update_time = Column(BigInteger, nullable=False)
@@ -98,7 +102,7 @@ class VaultPosition(Base):
 
 
 class VaultPositionTxn(Base):
-    """Model for vault_pos_txn table in proddb schema
+    """Model for vault_pos_txn table in {SCHEMA} schema
     Junction table linking vault_positions to vault_pos_txn
     Example:
     {
@@ -111,18 +115,18 @@ class VaultPositionTxn(Base):
     """
 
     __tablename__ = "vault_pos_txn"
-    __table_args__ = {"schema": "proddb"}
+    __table_args__ = {"schema": SCHEMA}
 
     position_id = Column(
         UUID(as_uuid=False),
-        ForeignKey("proddb.vault_positions.id"),
+        ForeignKey(f"{SCHEMA}.vault_positions.id"),
         primary_key=True,
         nullable=False,
         index=True,
     )
     trade_id = Column(
         String(255),
-        ForeignKey("proddb.swap_transactions.txn"),
+        ForeignKey(f"{SCHEMA}.swap_transactions.txn"),
         primary_key=True,
         nullable=False,
         index=True,
@@ -133,7 +137,7 @@ class VaultPositionTxn(Base):
 
 
 class TradeStrategy(Base):
-    """Model for trade_strategies table in proddb schema
+    """Model for trade_strategies table in {SCHEMA} schema
     Example:
     {
         "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -147,7 +151,7 @@ class TradeStrategy(Base):
     """
 
     __tablename__ = "trade_strategies"
-    __table_args__ = {"schema": "proddb"}
+    __table_args__ = {"schema": SCHEMA}
 
     id = Column(
         UUID(as_uuid=False),
@@ -163,7 +167,7 @@ class TradeStrategy(Base):
 
 
 class VaultBalanceSnapshot(Base):
-    """Model for vault_balance_snapshots table in proddb schema
+    """Model for vault_balance_snapshots table in {SCHEMA} schema
     (Renamed from vault_state)
     Example:
     {
@@ -176,23 +180,23 @@ class VaultBalanceSnapshot(Base):
     """
 
     __tablename__ = "vault_balance_snapshots"
-    __table_args__ = {"schema": "proddb"}
+    __table_args__ = {"schema": SCHEMA}
 
     vault_id = Column(
         UUID(as_uuid=False),
-        ForeignKey("proddb.vault.id"),
+        ForeignKey(f"{SCHEMA}.vault.id"),
         primary_key=True,
         nullable=False,
         index=True,
     )
     timestamp = Column(BigInteger, primary_key=True, nullable=False, index=True)
     asset = Column(JSONB, nullable=False)  # JSON data about token amount, price in USD
-    total_value = Column(Float, nullable=False)
+    total_value_ada = Column(Float, nullable=False)
     total_value_usd = Column(Float, nullable=False)
 
 
 class VaultState(Base):
-    """Model for vault_state table in proddb schema (recreated)
+    """Model for vault_state table in {SCHEMA} schema (recreated)
     Example:
     {
         "vault_id": "550e8400-e29b-41d4-a716-446655440001",
@@ -217,11 +221,11 @@ class VaultState(Base):
     """
 
     __tablename__ = "vault_state"
-    __table_args__ = {"schema": "proddb"}
+    __table_args__ = {"schema": SCHEMA}
 
     vault_id = Column(
         UUID(as_uuid=False),
-        ForeignKey("proddb.vault.id"),
+        ForeignKey(f"{SCHEMA}.vault.id"),
         primary_key=True,
         nullable=False,
         index=True,
@@ -250,11 +254,11 @@ class VaultConfigUtxo(Base):
     """Config/reference UTXO for a vault (tx_hash + utxo_id = reference script UTXO)."""
 
     __tablename__ = "vault_config_utxo"
-    __table_args__ = {"schema": "proddb"}
+    __table_args__ = {"schema": SCHEMA}
 
     vault_id = Column(
         UUID(as_uuid=False),
-        ForeignKey("proddb.vault.id"),
+        ForeignKey(f"{SCHEMA}.vault.id"),
         primary_key=True,
         nullable=False,
         index=True,
@@ -267,7 +271,7 @@ class VaultConfigUtxo(Base):
 
 
 class VaultLog(Base):
-    """Model for vault_logs table in proddb schema
+    """Model for vault_logs table in {SCHEMA} schema
     Example:
     {
         "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -284,7 +288,7 @@ class VaultLog(Base):
     """
 
     __tablename__ = "vault_logs"
-    __table_args__ = {"schema": "proddb"}
+    __table_args__ = {"schema": SCHEMA}
 
     id = Column(
         UUID(as_uuid=False),
@@ -292,7 +296,7 @@ class VaultLog(Base):
         server_default=text("chatbot.uuid_generate_v4()"),
     )
     vault_id = Column(
-        UUID(as_uuid=False), ForeignKey("proddb.vault.id"), nullable=False, index=True
+        UUID(as_uuid=False), ForeignKey(f"{SCHEMA}.vault.id"), nullable=False, index=True
     )
     wallet_address = Column(String(255), nullable=False, index=True)
     action = Column(
@@ -308,7 +312,7 @@ class VaultLog(Base):
 
 
 class UserEarning(Base):
-    """Model for user_earnings table in proddb schema
+    """Model for user_earnings table in {SCHEMA} schema
     Example:
     {
         "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -323,7 +327,7 @@ class UserEarning(Base):
     """
 
     __tablename__ = "user_earnings"
-    __table_args__ = {"schema": "proddb"}
+    __table_args__ = {"schema": SCHEMA}
 
     id = Column(
         UUID(as_uuid=False),
@@ -331,7 +335,7 @@ class UserEarning(Base):
         server_default=text("chatbot.uuid_generate_v4()"),
     )
     vault_id = Column(
-        UUID(as_uuid=False), ForeignKey("proddb.vault.id"), nullable=False, index=True
+        UUID(as_uuid=False), ForeignKey(f"{SCHEMA}.vault.id"), nullable=False, index=True
     )
     wallet_address = Column(String(255), nullable=False, index=True)
     total_deposit = Column(Float, default=0.0)

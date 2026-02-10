@@ -1,4 +1,5 @@
 from datetime import datetime
+from sys import setswitchinterval
 from typing import List, Optional
 import json
 import uuid
@@ -8,24 +9,15 @@ from fastapi import status as http_status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.router_decorated import APIRouter
 from app.core.cache import cache
 from app.db.session import get_db
 import app.schemas.vault as schemas
-#  (
-#     VaultInfo,
-#     VaultListResponse,
-#     VaultListItem,
-#     VaultPosition,
-#     VaultPositionsResponse,
-#     VaultStats,
-#     VaultContributeResponse,
-#     VaultValuesResponse,
-#     VaultWithdrawRequest,
-#     VaultWithdrawResponse,
-# )
 from app.services import price_cache
 from app.services.vault_withdraw import perform_vault_withdraw
+
+SCHEMA = settings.SCHEMA_2
 
 router = APIRouter()
 group_tags: List[str] = ["vault"]
@@ -86,16 +78,17 @@ def _get_vaults(
             COUNT(*) OVER() AS total_count
         FROM (
             SELECT vault_id, state, tvl_usd, max_drawdown, return_percent
-            FROM proddb.vault_state
+            FROM {SCHEMA}.vault_state
             {state_filter}
         ) vs
-        LEFT JOIN proddb.vault v ON vs.vault_id = v.id
+        LEFT JOIN {SCHEMA}.vault v ON vs.vault_id = v.id
         WHERE 1=1
             {id_filter}
         ORDER BY v.depositing_time DESC
         {limit_sql}
         """
     )
+    print(query_sql)
 
     results = db.execute(query_sql).fetchall()
     items: list[dict] = []
@@ -157,9 +150,9 @@ def _get_vault_stats_data(
             vs.total_fees_paid,
             ts.decision_cycle,
             v.depositing_time AS depositing_time
-        FROM proddb.vault_state vs
-        LEFT JOIN proddb.vault v ON vs.vault_id = v.id
-        LEFT JOIN proddb.trade_strategies ts ON (
+        FROM {SCHEMA}.vault_state vs
+        LEFT JOIN {SCHEMA}.vault v ON vs.vault_id = v.id
+        LEFT JOIN {SCHEMA}.trade_strategies ts ON (
             ts.quote_token_id = v.token_id 
             OR ts.base_token_id = v.token_id
         )
@@ -506,10 +499,10 @@ def get_vault_values(
         select case when closed_time is not null and closed_time < EXTRACT(EPOCH FROM now())::BIGINT then closed_time
                 else EXTRACT(EPOCH FROM now())::BIGINT
             end end_time
-        from proddb.vault
+        from {SCHEMA}.vault
         where id = '{id}'
         ) v
-        JOIN proddb.vault_balance_snapshots vbs on vbs.vault_id = '{id}'
+        JOIN {SCHEMA}.vault_balance_snapshots vbs on vbs.vault_id = '{id}'
             and vbs.timestamp < v.end_time
             and vbs.timestamp > v.end_time - {count_back} * {resolution_seconds}
             and vbs.timestamp % {resolution_seconds} = 0
@@ -613,8 +606,8 @@ def get_vault_positions(
             vtp.current_asset,
             quote_token.symbol as quote_token_symbol,
             COUNT(*) OVER() AS total_count
-        FROM proddb.vault_positions vtp
-        LEFT JOIN proddb.tokens quote_token ON vtp.quote_token_id = quote_token.id
+        FROM {SCHEMA}.vault_positions vtp
+        LEFT JOIN {SCHEMA}.tokens quote_token ON vtp.quote_token_id = quote_token.id
         WHERE vtp.vault_id = '{id}' {status_filter}
         ORDER BY vtp.start_time DESC
         LIMIT {limit} OFFSET {offset}
@@ -668,7 +661,7 @@ def get_vault_positions(
         if spend > 0:
             profit = ((value - spend) / spend) * 100
         positions.append(
-            VaultPosition(
+            schemas.VaultPosition(
                 pair=pair,
                 spend=spend,
                 value=value,
@@ -681,7 +674,7 @@ def get_vault_positions(
             )
         )
 
-    return VaultPositionsResponse(
+    return schemas.VaultPositionsResponse(
         total=total,
         page=page,
         limit=limit,
@@ -700,11 +693,10 @@ def withdraw_from_vault(
     db: Session = Depends(get_db),
 ) -> schemas.VaultWithdrawResponse:
     """
-    Trigger a vault withdraw if the user still has withdrawable capital.
+    Trigger a one-time vault withdraw (full current_value) after the vault is in withdrawable state.
     Payload:
     - vault_id: Vault UUID
     - wallet_address: Wallet address
-    - amount_ada: Amount of ADA to withdraw (optional, default: all withdrawable amount)
 
     Returns:
     - status: "ok" if successful, "invalid" if failed
@@ -714,19 +706,18 @@ def withdraw_from_vault(
     *Sample request body:*
     {
         "vault_id": "e13d48c8-9725-4405-8746-b84be7acc5c2",
-        "wallet_address": "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm",
-        "amount_ada": 100.0
+        "wallet_address": "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm"
     }
     """
     outcome = perform_vault_withdraw(
         db=db,
         vault_id=payload.vault_id,
         wallet_address=payload.wallet_address,
-        requested_amount_ada=payload.amount_ada,
+        # requested_amount_ada=payload.amount_ada,
     )
     if outcome.error:
-        return VaultWithdrawResponse(status="invalid", reason=outcome.error)
-    return VaultWithdrawResponse(status="ok", tx_id=outcome.tx_hash)
+        return schemas.VaultWithdrawResponse(status="invalid", reason=outcome.error)
+    return schemas.VaultWithdrawResponse(status="ok", tx_id=outcome.tx_hash)
 
 
 @router.get(
@@ -775,7 +766,7 @@ def get_vault_contribute(
             ue.total_deposit,
             ue.total_withdrawal / ue.total_deposit - 1 as profit_rate,
             ue.is_redeemed
-        FROM proddb.user_earnings ue
+        FROM {SCHEMA}.user_earnings ue
         WHERE ue.vault_id = '{id}' AND ue.wallet_address = '{wallet_address}'
         LIMIT 1
         """

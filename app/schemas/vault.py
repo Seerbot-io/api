@@ -120,7 +120,7 @@ class VaultWithdrawRequest(CustomBaseModel):
 
     vault_id: str
     wallet_address: str
-    amount_ada: Optional[float] = None
+    # amount_ada: Optional[float] = None
 
 
 class VaultWithdrawResponse(CustomBaseModel):

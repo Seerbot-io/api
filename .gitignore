@@ -15,7 +15,7 @@ coverage.xml
 .serena/*
 tasks/
 migrations/*
-
+tests/db/*
 # env
 venv
 .venv

@@ -35,6 +35,8 @@ class VaultDepositChainInfo:
     token_id: str
     timestamp: int
     fee: float
+    pool_name: str
+    contributor_address: str
 
 
 def register_vault_deposit_done_callback(tx_id: str, vault_id: str, websocket: Any) -> None:
@@ -60,7 +62,6 @@ def send_vault_deposit_done_result(
         if reason is not None:
             payload["reason"] = reason
         if data is not None:
-            print("data", data)
             for key, value in data.items():
                 payload[key] = value
         asyncio.create_task(_safe_send_done(ws, payload))
@@ -248,7 +249,7 @@ async def _process_vault_deposit_item(
         return True
 
 # todo: optimize skip decoded.value, from raw to fields and normalize
-def _parse_datum(datum_hex: str) -> Tuple[int, List[bytes]]:
+def _parse_datum(datum_cbor: bytes=None, datum_hex: str=None) -> Tuple[int, List[any]]:
     """
     Parse vault deposit datum CBOR.
     Expected: Constr 0 with fields [hash (28 bytes), pool_asset (policy_id + pool_name as bytes)].
@@ -257,7 +258,10 @@ def _parse_datum(datum_hex: str) -> Tuple[int, List[bytes]]:
       - [constructor_index, [field0, field1]].
     Returns (constructor, list of field bytes).
     """
-    datum = RawPlutusData.from_cbor(bytes.fromhex(datum_hex)).to_dict()
+    if datum_hex:
+        datum = RawPlutusData.from_cbor(bytes.fromhex(datum_hex)).to_dict()
+    else:
+        datum = RawPlutusData.from_cbor(datum_cbor).to_dict()
 
     if not datum["fields"]:
         raise ValueError("datum has no fields")
@@ -308,7 +312,7 @@ def _validate_vault_deposit_onchain(
     # pool_id is "policy_id.pool_name". pool_name (after the dot) identifies which vault the user
     # is depositing into. Deposit asset is always ADA (lovelace).
     lovelace_amount = 0.0
-    policy_id = deployment.factory_policy_id or ""
+    # policy_id = deployment.factory_policy_id or ""
     expected_pool_name = (deployment.pool_name or "").strip().lower()
 
     for entry in vault_output.amount:
@@ -316,12 +320,14 @@ def _validate_vault_deposit_onchain(
         quantity = float(entry.quantity)
         if unit == "lovelace":
             lovelace_amount = quantity / 1_000_000
+            if lovelace_amount < 1:
+                raise ValueError("deposit amount must be greater or equal to 1 ADA")
 
     # Parse inline datum: Constr 0 with fields [hash (28 bytes), pool_asset (policy_id + pool_name)]
     inline_datum = getattr(vault_output, "inline_datum", None)
     if not inline_datum:
         raise ValueError("missing inline datum on vault output")
-    datum_parsed = _parse_datum(inline_datum)
+    datum_parsed = _parse_datum(datum_hex=inline_datum)
     fields = datum_parsed["fields"]
 
     if len(fields) < 2:
@@ -361,6 +367,8 @@ def _validate_vault_deposit_onchain(
         token_id="lovelace",
         timestamp=int(tx.block_time or time.time()),
         fee=fee,
+        pool_name=datum_pool_name,
+        contributor_address=datum_user_address,
     )
 
 
@@ -382,6 +390,9 @@ def _finalize_vault_deposit(
         if not row:
             return
 
+        contributor_address = chain_info.contributor_address
+        if row.wallet_address != contributor_address:
+            row.wallet_address = contributor_address
         row.amount = chain_info.amount
         row.token_id = chain_info.token_id
         row.timestamp = chain_info.timestamp
@@ -393,7 +404,7 @@ def _finalize_vault_deposit(
             db.query(UserEarning)
             .filter(
                 UserEarning.vault_id == vault_id,
-                UserEarning.wallet_address == wallet_address,
+                UserEarning.wallet_address == contributor_address,
             )
             .first()
         )
@@ -401,16 +412,17 @@ def _finalize_vault_deposit(
         if not earning:
             earning = UserEarning(
                 vault_id=vault_id,
-                wallet_address=wallet_address,
-                total_deposit=0.0,
+                wallet_address=contributor_address,
+                total_deposit=chain_info.amount,
                 total_withdrawal=0.0,
-                current_value=0.0,
+                current_value=chain_info.amount,
                 last_updated_timestamp=int(time.time()),
             )
+        else:
+            earning.total_deposit = (earning.total_deposit or 0.0) + chain_info.amount
+            earning.current_value = (earning.current_value or 0.0) + chain_info.amount
+            earning.last_updated_timestamp = int(time.time())
             db.add(earning)
-
-        earning.total_deposit = (earning.total_deposit or 0.0) + chain_info.amount
-        earning.last_updated_timestamp = int(time.time())
         db.commit()
     finally:
         db.close()

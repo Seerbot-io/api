@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pycardano import Network
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,6 +54,7 @@ class Settings(BaseSettings):
     # CARDANO
     BLOCKFROST_API_KEY: str
     CARDANO_NETWORK: Network = Network.MAINNET
+    VAULT_WALLETS_PATH: str | None = None
 
     # Token price cache settings
     TOKEN_CACHE_ENABLE_BACKGROUND_REFRESH: bool = False
@@ -73,5 +76,14 @@ class Settings(BaseSettings):
                 return Network.TESTNET
 
         raise ValueError(f"Invalid network: {v}")
+    
+    # todo: temporary config
+    @field_validator("VAULT_WALLETS_PATH", mode="before")
+    @classmethod
+    def default_wallets_path(cls, v):
+        if isinstance(v, str) and v:
+            return v
+        root = Path(__file__).resolve().parents[2]
+        return str(root / "secret" / "wallets.yaml")
 # Instantiate the settings
 settings = Settings()  # type: ignore

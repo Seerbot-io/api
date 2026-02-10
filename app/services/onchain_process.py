@@ -3,20 +3,31 @@
 import asyncio
 import time
 import json
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from psycopg2 import IntegrityError
 import requests
 from blockfrost.utils import Namespace
-from pycardano import BlockFrostChainContext
+from pycardano import (
+    BlockFrostChainContext,
+    Network,
+)
 
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.swaps import Swap
 
+BLOCKFROST_ENDPOINTS = {
+    Network.MAINNET: "https://cardano-mainnet.blockfrost.io/api/",
+    Network.TESTNET: "https://cardano-preprod.blockfrost.io/api/",
+}
 context = BlockFrostChainContext(
     project_id=settings.BLOCKFROST_API_KEY,
-    base_url="https://cardano-mainnet.blockfrost.io/api/",
+    base_url=BLOCKFROST_ENDPOINTS.get(
+        settings.CARDANO_NETWORK,
+        BLOCKFROST_ENDPOINTS[Network.MAINNET],
+    ),
 )
 
 MINSWAP_V2_POOL_CONTRACT = "addr1z84q0denmyep98ph3tmzwsmw0j7zau9ljmsqx6a4rvaau66j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq777e2a"
@@ -30,6 +41,13 @@ swap_queue: asyncio.Queue[tuple[str, float, Optional[str]]] = (
 )  # (order_tx_id, received_at, user)
 swap_worker_task: asyncio.Task | None = None
 swap_queue_tx_ids: set[str] = set()  # Track tx_ids in queue to avoid duplicates
+
+
+@dataclass
+class VaultWithdrawChainResult:
+    tx_hash: str
+    new_config_tx: str
+    new_config_index: int
 
 
 # not use
@@ -394,24 +412,47 @@ async def _ensure_swap_worker():
         swap_worker_task = asyncio.create_task(_swap_worker())
         print("[swap-queue] worker started")
 
-# todo: complete this function
+
 def vault_withdraw_on_chain(
     vault_address: str,
     config_utxo_info: Tuple[str, int],
     withdraw_amount: int,
     manager_pkh: str,
-) -> str:
+    wallet_address: str,
+    contract_name: Optional[str] = None,
+) -> VaultWithdrawChainResult:
     """
-    Placeholder for the vault withdraw execution.
-    Replace with real Blockfrost/pycardano logic later.
+    Delegate to ``vault_withdraw_action.withdraw_action`` which:
+    - Resolves the config UTxO from live UTxOs (verifies it is unspent).
+    - Spends it via ``add_script_input`` with the Plutus TAG_WITHDRAW redeemer.
+    - Sends withdraw_amount to the user, remaining value + datum back to vault.
+    - Only the manager signs and pays the fee.
+    - When a reference-script UTxO is missing or mismatched, *contract_name* determines which script is loaded locally.
     """
-    tx_hash, utxo_index = config_utxo_info
+    from app.services.vault_withdraw_action import withdraw_action
+
+    config_tx, config_index = config_utxo_info
+    config_ref = f"{config_tx}#{config_index}"
     print(
-        "[vault-withdraw-stub]",
+        "[vault-withdraw]",
         vault_address,
-        tx_hash,
-        utxo_index,
+        config_ref,
         withdraw_amount,
         manager_pkh,
+        wallet_address,
     )
-    return "stubbed-vault-withdraw-tx-hash"
+
+    result = withdraw_action(
+        amount=withdraw_amount,
+        recipient_address=wallet_address,
+        manager_pkh=manager_pkh,
+        vault_address=vault_address,
+        config_utxo_ref=config_ref,
+        contract_name=contract_name,
+    )
+
+    return VaultWithdrawChainResult(
+        tx_hash=result.tx_hash,
+        new_config_tx=result.new_config_tx,
+        new_config_index=result.new_config_index,
+    )
