@@ -31,7 +31,7 @@ def get_db() -> Generator[Session, None, None]:
         if isinstance(e, HTTPException):
             raise e
         else:
-            print(e)
+            print("DB error:", e)
             raise HTTPException(status_code=500, detail="Query data error")
     finally:
         db.close()

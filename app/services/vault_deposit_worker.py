@@ -136,8 +136,8 @@ def _ensure_vault_log_pending(tx_id: str, wallet_address: str, vault_id: str) ->
         if row:
             if row.status == "completed":
                 return "completed"
-            if row.status == "pending":
-                return "already_pending"
+            # if row.status == "pending":
+            #     return "already_pending"
             # e.g. "failed" or other: refresh and allow re-queue
             row.status = "pending"
             row.amount = 0.0
@@ -203,9 +203,7 @@ async def _vault_deposit_worker() -> None:
             if age <= VAULT_DEPOSIT_RETRY_MAX_AGE_SECONDS:
                 vault_deposit_queue_keys.add(key)
                 await vault_deposit_queue.put((tx_id, wallet_address, vault_id, received_at))
-                print(
-                    f"[vault-deposit-queue] requeue {tx_id} (age={age:.1f}s), sleeping {VAULT_DEPOSIT_RETRY_SLEEP_SECONDS}s"
-                )
+                print(f"[vault-deposit-queue] requeue {tx_id} (age={age:.1f}s), sleeping {VAULT_DEPOSIT_RETRY_SLEEP_SECONDS}s")
                 await asyncio.sleep(VAULT_DEPOSIT_RETRY_SLEEP_SECONDS)
                 continue
             loop = asyncio.get_running_loop()
@@ -408,7 +406,6 @@ def _finalize_vault_deposit(
             )
             .first()
         )
-        print(f"earning: {earning}")
         if not earning:
             earning = UserEarning(
                 vault_id=vault_id,

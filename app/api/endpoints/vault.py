@@ -88,8 +88,6 @@ def _get_vaults(
         {limit_sql}
         """
     )
-    print(query_sql)
-
     results = db.execute(query_sql).fetchall()
     items: list[dict] = []
     for row in results:
@@ -731,6 +729,9 @@ def get_vault_contribute(
     wallet_address: str = Query(
         ..., description="Wallet address of the user (required)"
     ),
+    is_redeemed: Optional[bool] = Query(
+        None, description="Whether the user has redeemed their position (one-time withdrawal)"
+    ),
     db: Session = Depends(get_db),
 ) -> schemas.VaultContributeResponse:
     """
@@ -741,7 +742,7 @@ def get_vault_contribute(
 
     Query Parameters:
     - wallet_address: Wallet address of the user (required)
-
+    - is_redeemed: Whether the user has redeemed their position (one-time withdrawal)
     Returns:
     - total_deposit: Total amount deposited by the user
     - profit_rate: Profit rate of the user
@@ -760,14 +761,22 @@ def get_vault_contribute(
     wallet_address = wallet_address.strip().lower()
     
     # Query user earning for this specific vault
+    is_redeemed_filter = ""
+    if is_redeemed:
+        is_redeemed_filter = "AND ue.is_redeemed = true"
+    else:
+        is_redeemed_filter = "AND ue.is_redeemed = false"
+
     data_sql = text(
         f"""
         SELECT 
             ue.total_deposit,
-            ue.total_withdrawal / ue.total_deposit - 1 as profit_rate,
+            ue.total_withdrawal,
+            ue.current_value / ue.total_deposit - 1 as profit_rate,
             ue.is_redeemed
         FROM {SCHEMA}.user_earnings ue
         WHERE ue.vault_id = '{id}' AND ue.wallet_address = '{wallet_address}'
+        {is_redeemed_filter}
         LIMIT 1
         """
     )
@@ -777,12 +786,14 @@ def get_vault_contribute(
         # Return default values if no record found
         return schemas.VaultContributeResponse(
             total_deposit=0,
+            total_withdrawal=0,
             profit_rate=25,
             is_redeemed=False,
         )
     
     return schemas.VaultContributeResponse(
         total_deposit=round(float(result.total_deposit), 6) if result.total_deposit else 0.0,
+        total_withdrawal=round(float(result.total_withdrawal), 6) if result.total_withdrawal else 0.0,
         profit_rate=round(float(result.profit_rate), 6) if result.profit_rate else 0.0,
         is_redeemed=bool(result.is_redeemed) if result.is_redeemed is not None else False,
     )

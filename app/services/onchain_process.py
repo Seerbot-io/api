@@ -383,9 +383,7 @@ async def _swap_worker():
                 # Re-add to tracking set when requeuing
                 swap_queue_tx_ids.add(order_tx_id)
                 await swap_queue.put((order_tx_id, received_at, user))
-                print(
-                    f"[swap-queue] requeue {order_tx_id} (age={age:.1f}s), sleeping {SWAP_RETRY_SLEEP_SECONDS}s"
-                )
+                print(f"[swap-queue] requeue {order_tx_id} (age={age:.1f}s), sleeping {SWAP_RETRY_SLEEP_SECONDS}s")
                 await asyncio.sleep(SWAP_RETRY_SLEEP_SECONDS)
             else:
                 print(f"[swap-queue] drop stale {order_tx_id} (age={age:.1f}s)")
@@ -433,8 +431,7 @@ def vault_withdraw_on_chain(
 
     config_tx, config_index = config_utxo_info
     config_ref = f"{config_tx}#{config_index}"
-    print(
-        "[vault-withdraw]",
+    print("[vault-withdraw]",
         vault_address,
         config_ref,
         withdraw_amount,

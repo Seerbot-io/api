@@ -38,9 +38,7 @@ class CustomBaseModel(BaseModel):
                         print(f"Invalid value, set default value for key: {attr}")
                         data[attr] = me.model_fields[attr].default
                     else:  # set the custorm default value it don't have default value
-                        print(
-                            f"Invalid value, set custorm default value for key: {attr}"
-                        )
+                        print(f"Invalid value, set custorm default value for key: {attr}")
                         # Use appropriate default value based on type
                         if attr_type is dict:
                             data[attr] = {}
