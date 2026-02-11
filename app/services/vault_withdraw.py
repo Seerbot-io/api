@@ -13,8 +13,9 @@ from app.services.vault_deployment import get_vault_deployment_info
 
 @dataclass
 class VaultWithdrawOutcome:
-    tx_hash: Optional[str]
-    error: Optional[str]
+    tx_hash: Optional[str] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
 
 
 def _normalize_address(address: str) -> str:
@@ -47,16 +48,13 @@ def perform_vault_withdraw(
     vault_id = (vault_id or "").strip().lower()
     wallet = _normalize_address(wallet_address)
     if not vault_id or not wallet:
-        return VaultWithdrawOutcome(None, "vault_id and wallet_address are required")
-
+        return VaultWithdrawOutcome(error="vault_id and wallet_address are required")
     deployment = get_vault_deployment_info(db, vault_id)
     if not deployment or not deployment.config_utxo_tx_id:
-        return VaultWithdrawOutcome(None, "vault deployment info is incomplete")
-
+        return VaultWithdrawOutcome(error="vault deployment info is incomplete")
     manager_pkh = deployment.manager_pkh
     if not manager_pkh:
-        return VaultWithdrawOutcome(None, "vault manager public key hash is missing")
-
+        return VaultWithdrawOutcome(error="vault manager public key hash is missing")
     earning = (
         db.query(UserEarning)
         .with_for_update()
@@ -67,25 +65,20 @@ def perform_vault_withdraw(
         .first()
     )
     if not earning:
-        return VaultWithdrawOutcome(None, "no earnings record for this vault and wallet")
+        return VaultWithdrawOutcome(error="no earnings record for this vault and wallet")
     if earning.is_redeemed:
-        return VaultWithdrawOutcome(None, "vault already redeemed for this wallet")
-
+        return VaultWithdrawOutcome(error="vault already redeemed for this wallet")
     withdrawable_ada = float(earning.current_value or 0.0)
     if withdrawable_ada <= 0:
-        return VaultWithdrawOutcome(None, "current value is zero or negative")
-
+        return VaultWithdrawOutcome(error="current value is zero or negative")
     # One-time redeem: withdraw all current_value
     target_ada = withdrawable_ada
-
     withdraw_amount = _ada_to_lovelace(target_ada)
     # 0.5 ADA minimum
     if withdraw_amount < 500_000:
-        return VaultWithdrawOutcome(None, "withdraw amount must be greater than 0.5 ADA")
-
+        return VaultWithdrawOutcome(error="withdraw amount must be greater than 0.5 ADA")
     config_tx = deployment.config_utxo_tx_id
     config_index = deployment.config_utxo_index or 0
-
     try:
         chain_result = vault_withdraw_on_chain(
             vault_address=deployment.script_address,
@@ -96,8 +89,7 @@ def perform_vault_withdraw(
             contract_name=deployment.contract,
         )
     except Exception as exc:
-        return VaultWithdrawOutcome(None, f"on-chain withdraw failed: {exc}")
-
+        return VaultWithdrawOutcome(error=f"on-chain withdraw failed: {exc}")
     # Update vault_config_utxo with the new config UTxO reference from the withdraw tx
     config_row = (
         db.query(VaultConfigUtxo)
@@ -116,4 +108,4 @@ def perform_vault_withdraw(
     earning.last_updated_timestamp = int(time.time())
     db.commit()
 
-    return VaultWithdrawOutcome(chain_result.tx_hash, None)
+    return VaultWithdrawOutcome(tx_hash=chain_result.tx_hash, message=f"withdrawn {target_ada} ADA")

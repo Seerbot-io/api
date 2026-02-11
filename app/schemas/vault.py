@@ -128,7 +128,7 @@ class VaultWithdrawResponse(CustomBaseModel):
 
     status: Literal["ok", "invalid"]
     tx_id: Optional[str] = None
-    reason: Optional[str] = None
+    message: Optional[str] = None
 
 
 class VaultContributeResponse(CustomBaseModel):

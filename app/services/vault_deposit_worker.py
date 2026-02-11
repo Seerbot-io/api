@@ -408,7 +408,7 @@ def _finalize_vault_deposit(
             )
             .first()
         )
-
+        print(f"earning: {earning}")
         if not earning:
             earning = UserEarning(
                 vault_id=vault_id,
@@ -418,11 +418,11 @@ def _finalize_vault_deposit(
                 current_value=chain_info.amount,
                 last_updated_timestamp=int(time.time()),
             )
+            db.add(earning)
         else:
             earning.total_deposit = (earning.total_deposit or 0.0) + chain_info.amount
             earning.current_value = (earning.current_value or 0.0) + chain_info.amount
             earning.last_updated_timestamp = int(time.time())
-            db.add(earning)
         db.commit()
     finally:
         db.close()

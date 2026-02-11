@@ -701,7 +701,7 @@ def withdraw_from_vault(
     Returns:
     - status: "ok" if successful, "invalid" if failed
     - tx_id: Transaction hash if successful, None if failed
-    - reason: Error message if failed
+    - message: amount of ADA withdrawn if successful / Error message if failed
 
     *Sample request body:*
     {
@@ -715,9 +715,9 @@ def withdraw_from_vault(
         wallet_address=payload.wallet_address,
         # requested_amount_ada=payload.amount_ada,
     )
-    if outcome.error:
-        return schemas.VaultWithdrawResponse(status="invalid", reason=outcome.error)
-    return schemas.VaultWithdrawResponse(status="ok", tx_id=outcome.tx_hash)
+    if outcome.error is not None:
+        return schemas.VaultWithdrawResponse(status="invalid", tx_id=None, message=outcome.error)
+    return schemas.VaultWithdrawResponse(status="ok", tx_id=outcome.tx_hash, message=outcome.message)
 
 
 @router.get(
