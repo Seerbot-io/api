@@ -136,5 +136,7 @@ class VaultContributeResponse(CustomBaseModel):
 
     total_deposit: float = 0.0
     total_withdrawal: float = 0.0
+    min_deposit: float = 1.0
+    min_withdrawal: float = 0.5
     profit_rate: float = 0.0
     is_redeemed: bool = False

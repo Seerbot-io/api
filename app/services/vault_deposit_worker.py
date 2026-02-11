@@ -84,6 +84,7 @@ async def queue_vault_deposit_request(
     If done_websocket is provided, the client will receive a second message when on-chain checks
     finish: { message: "oke" } or { message: "failed", reason: "..." }.
     """
+    global vault_deposit_queue_keys
     key = (tx_id, vault_id)
     if key in vault_deposit_queue_keys:
         print(f"[vault-deposit-queue] already queued: {tx_id} {vault_id}")
@@ -103,10 +104,10 @@ async def queue_vault_deposit_request(
         if done_websocket:
             await done_websocket.send_json({"message": "already_pending"})
         return True, "already pending (in queue or processing)"
-    # # check if the vault is in deposit state
-    # vault_info = get_vault_info(vault_id)
-    # if vault_info.state != "deposit":
-    #     return False, "vault is not in deposit state"
+    # check if the vault is in deposit state
+    vault_info = get_vault_info(vault_id)
+    if vault_info.state != "deposit":
+        return False, "vault is not in deposit state"
     # status == "inserted": only add to process queue when not already in DB/queue
     vault_deposit_queue_keys.add(key)
     if done_websocket is not None:
@@ -182,7 +183,7 @@ async def _ensure_vault_deposit_worker() -> None:
 
 
 async def _vault_deposit_worker() -> None:
-    global vault_deposit_worker_task
+    global vault_deposit_worker_task, vault_deposit_queue_keys
     
     while True:
         try:

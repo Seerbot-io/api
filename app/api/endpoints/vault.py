@@ -707,10 +707,10 @@ def withdraw_from_vault(
         "wallet_address": "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm"
     }
     """
-    # # check if the vault is in withdrawable state
-    # vault_info = get_vault_info(payload.vault_id, db)
-    # if vault_info.state != "withdrawable":
-    #     return schemas.VaultWithdrawResponse(status="invalid", tx_id=None, message="Vault is not in withdrawable state")
+    # check if the vault is in withdrawable state
+    vault_info = get_vault_info(payload.vault_id, db)
+    if vault_info.state != "withdrawable":
+        return schemas.VaultWithdrawResponse(status="invalid", tx_id=None, message="Vault is not in withdrawable state")
     outcome = perform_vault_withdraw(
         db=db,
         vault_id=payload.vault_id,
