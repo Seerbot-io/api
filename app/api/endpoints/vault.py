@@ -707,6 +707,10 @@ def withdraw_from_vault(
         "wallet_address": "addr1vyrq3xwa5gs593ftfpy2lzjjwzksdt0fkjjwge4ww6p53dqy4w5wm"
     }
     """
+    # # check if the vault is in withdrawable state
+    # vault_info = get_vault_info(payload.vault_id, db)
+    # if vault_info.state != "withdrawable":
+    #     return schemas.VaultWithdrawResponse(status="invalid", tx_id=None, message="Vault is not in withdrawable state")
     outcome = perform_vault_withdraw(
         db=db,
         vault_id=payload.vault_id,
@@ -787,6 +791,8 @@ def get_vault_contribute(
         return schemas.VaultContributeResponse(
             total_deposit=0,
             total_withdrawal=0,
+            min_deposit=1,
+            min_withdrawal=0.5,
             profit_rate=25,
             is_redeemed=False,
         )
@@ -794,6 +800,8 @@ def get_vault_contribute(
     return schemas.VaultContributeResponse(
         total_deposit=round(float(result.total_deposit), 6) if result.total_deposit else 0.0,
         total_withdrawal=round(float(result.total_withdrawal), 6) if result.total_withdrawal else 0.0,
+        min_deposit=1.0,
+        min_withdrawal=round(float(max(result.total_withdrawal or 0.0, 0.5)), 6),
         profit_rate=round(float(result.profit_rate), 6) if result.profit_rate else 0.0,
         is_redeemed=bool(result.is_redeemed) if result.is_redeemed is not None else False,
     )

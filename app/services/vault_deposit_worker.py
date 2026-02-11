@@ -7,6 +7,7 @@ import cbor2
 from blockfrost.utils import ApiError, Namespace
 from pycardano import Address, hash, RawPlutusData
 
+from app.api.endpoints.vault import get_vault_info
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.vault import UserEarning, VaultLog
@@ -85,6 +86,7 @@ async def queue_vault_deposit_request(
     """
     key = (tx_id, vault_id)
     if key in vault_deposit_queue_keys:
+        print(f"[vault-deposit-queue] already queued: {tx_id} {vault_id}")
         if done_websocket:
             await done_websocket.send_json({"message": "already_queued"})
         return True, "already queued"
@@ -101,7 +103,10 @@ async def queue_vault_deposit_request(
         if done_websocket:
             await done_websocket.send_json({"message": "already_pending"})
         return True, "already pending (in queue or processing)"
-
+    # # check if the vault is in deposit state
+    # vault_info = get_vault_info(vault_id)
+    # if vault_info.state != "deposit":
+    #     return False, "vault is not in deposit state"
     # status == "inserted": only add to process queue when not already in DB/queue
     vault_deposit_queue_keys.add(key)
     if done_websocket is not None:
@@ -205,6 +210,7 @@ async def _vault_deposit_worker() -> None:
                 await vault_deposit_queue.put((tx_id, wallet_address, vault_id, received_at))
                 print(f"[vault-deposit-queue] requeue {tx_id} (age={age:.1f}s), sleeping {VAULT_DEPOSIT_RETRY_SLEEP_SECONDS}s")
                 await asyncio.sleep(VAULT_DEPOSIT_RETRY_SLEEP_SECONDS)
+                print(f"[vault-deposit-queue] requeued {tx_id} (age={age:.1f}s)")
                 continue
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
