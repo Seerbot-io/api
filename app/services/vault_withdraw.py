@@ -41,9 +41,6 @@ def perform_vault_withdraw(
     """
     Withdraw ADA from the vault to the user's address.
 
-    One-time redeem semantics:
-    - Always withdraw the full `earning.current_value` (ignore `requested_amount_ada`).
-    - After a successful on-chain withdraw, set `earning.is_redeemed = True` and zero `current_value`.
     """
     vault_id = (vault_id or "").strip().lower()
     wallet = _normalize_address(wallet_address)
@@ -55,6 +52,7 @@ def perform_vault_withdraw(
     manager_pkh = deployment.manager_pkh
     if not manager_pkh:
         return VaultWithdrawOutcome(error="vault manager public key hash is missing")
+        
     earning = (
         db.query(UserEarning)
         .with_for_update()
@@ -68,11 +66,14 @@ def perform_vault_withdraw(
         return VaultWithdrawOutcome(error="no earnings record for this vault and wallet")
     if earning.is_redeemed:
         return VaultWithdrawOutcome(error="vault already redeemed for this wallet")
-    withdrawable_ada = float(earning.current_value or 0.0)
-    if withdrawable_ada <= 0:
+    if requested_amount_ada:
+        if requested_amount_ada > float(earning.current_value - earning.total_withdrawal):
+            return VaultWithdrawOutcome(error="requested amount is greater than the current value minus the total withdrawal")
+        target_ada = requested_amount_ada
+    else:
+        target_ada = float(earning.current_value - earning.total_withdrawal)
+    if target_ada <= 0:
         return VaultWithdrawOutcome(error="current value is zero or negative")
-    # One-time redeem: withdraw all current_value
-    target_ada = withdrawable_ada
     withdraw_amount = _ada_to_lovelace(target_ada)
     # 0.5 ADA minimum
     if withdraw_amount < 500_000:
@@ -104,7 +105,8 @@ def perform_vault_withdraw(
 
     earning.total_withdrawal = (earning.total_withdrawal or 0.0) + target_ada
     # earning.current_value = 0.0
-    earning.is_redeemed = True
+    if float(earning.current_value - earning.total_withdrawal + target_ada) <= 0.5:
+        earning.is_redeemed = True
     earning.last_updated_timestamp = int(time.time())
     db.commit()
 

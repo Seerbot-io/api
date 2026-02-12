@@ -698,6 +698,7 @@ def withdraw_from_vault(
     Payload:
     - vault_id: Vault UUID
     - wallet_address: Wallet address
+    - amount: Amount of ADA to withdraw (optional)
 
     Returns:
     - status: "ok" if successful, "invalid" if failed
@@ -718,7 +719,7 @@ def withdraw_from_vault(
         db=db,
         vault_id=payload.vault_id,
         wallet_address=payload.wallet_address,
-        # requested_amount_ada=payload.amount_ada,
+        requested_amount_ada=payload.amount,
     )
     if outcome.error is not None:
         return schemas.VaultWithdrawResponse(status="invalid", tx_id=None, message=outcome.error)
@@ -779,6 +780,7 @@ def get_vault_contribute(
         SELECT 
             ue.total_deposit,
             ue.total_withdrawal,
+            ue.current_value,
             ue.current_value / ue.total_deposit - 1 as profit_rate,
             ue.is_redeemed
         FROM {SCHEMA}.user_earnings ue
@@ -795,8 +797,9 @@ def get_vault_contribute(
             total_deposit=0,
             total_withdrawal=0,
             min_deposit=1,
-            min_withdrawal=0.5,
-            profit_rate=25,
+            min_withdrawal=0,
+            max_withdrawal=0,
+            profit_rate=0,
             is_redeemed=False,
         )
     
@@ -804,7 +807,8 @@ def get_vault_contribute(
         total_deposit=round(float(result.total_deposit), 6) if result.total_deposit else 0.0,
         total_withdrawal=round(float(result.total_withdrawal), 6) if result.total_withdrawal else 0.0,
         min_deposit=1.0,
-        min_withdrawal=round(float(max(result.total_withdrawal or 0.0, 0.5)), 6),
+        min_withdrawal=0.5,
+        max_withdrawal=round(float(result.current_value - result.total_withdrawal), 6),
         profit_rate=round(float(result.profit_rate), 6) if result.profit_rate else 0.0,
         is_redeemed=bool(result.is_redeemed) if result.is_redeemed is not None else False,
     )
