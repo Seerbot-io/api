@@ -184,7 +184,7 @@ def _get_vault_stats_data(
     decision_cycle = (
         dc_map.get(str(result.decision_cycle), str(result.decision_cycle))
         if str(result.decision_cycle)
-        else None
+        else '1h'
     )
     return {
         "state": str(result.state) if result.state else "",
@@ -370,7 +370,7 @@ def get_vault_info(
                 "trade_per_month", item.get("trade_per_month", 0.0)
             ),
             "decision_cycle": stats_data.get(
-                "decision_cycle", item.get("decision_cycle", None)
+                "decision_cycle", item.get("decision_cycle", '1h')
             ),
         }
     )
@@ -444,7 +444,7 @@ def get_vault_values(
     ),
     resolution: Optional[str] = Query(
         None, description="Time resolution (e.g., 1d, 1w, 1m)"
-    ),
+    ),  # todo: update to time window size
     # start_time: Optional[int] = Query(None, description="Start timestamp (Unix timestamp)"),
     # end_time: Optional[int] = Query(None, description="End timestamp (Unix timestamp)"),
     count_back: Optional[int] = Query(
@@ -459,7 +459,7 @@ def get_vault_values(
     - id: Vault UUID
 
     Query Parameters:
-    - resolution: Time resolution (e.g., 1d, 1w, 1m, default: 1d)
+    - resolution: Time window size (e.g., 1d, 1w, 1m, default: 1d)
     - currency: Currency to use for closing price (usd, ada, default: usd)
     - start_time: Start timestamp (Unix timestamp, optional)
     - end_time: End timestamp (Unix timestamp, optional)
@@ -479,12 +479,16 @@ def get_vault_values(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid vault ID")
     resolution = resolution.lower().strip() if resolution else "1d"
+    n_row = 0
     if resolution == "1w":
-        resolution_seconds = 604800
+        n_row = 7*3
+        resolution_seconds = 8*3600
     elif resolution == "1m":
-        resolution_seconds = 2592000
-    else:  # default to 1d
+        n_row = 30
         resolution_seconds = 86400
+    else:  # default to 1d
+        n_row = 24
+        resolution_seconds = 3600
     count_back = count_back if count_back else 20
     if currency == "ada":
         closing_price_column = "total_value_ada"
@@ -506,7 +510,6 @@ def get_vault_values(
             and vbs.timestamp % {resolution_seconds} = 0
         ORDER BY timestamp ASC
     """
-
     query_sql = text(base_query)
     results = []
     try:
