@@ -719,7 +719,7 @@ def withdraw_from_vault(
         db=db,
         vault_id=payload.vault_id,
         wallet_address=payload.wallet_address,
-        requested_amount_ada=payload.amount,
+        requested_amount_ada=payload.amount_ada,
     )
     if outcome.error is not None:
         return schemas.VaultWithdrawResponse(status="invalid", tx_id=None, message=outcome.error)
@@ -796,6 +796,7 @@ def get_vault_contribute(
         return schemas.VaultContributeResponse(
             total_deposit=0,
             total_withdrawal=0,
+            current_value=0,
             min_deposit=1,
             min_withdrawal=0,
             max_withdrawal=0,
@@ -806,6 +807,7 @@ def get_vault_contribute(
     return schemas.VaultContributeResponse(
         total_deposit=round(float(result.total_deposit), 6) if result.total_deposit else 0.0,
         total_withdrawal=round(float(result.total_withdrawal), 6) if result.total_withdrawal else 0.0,
+        current_value=round(float(result.current_value), 6) if result.current_value else 0.0,
         min_deposit=1.0,
         min_withdrawal=0.5,
         max_withdrawal=round(float(result.current_value - result.total_withdrawal), 6),
