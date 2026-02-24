@@ -29,6 +29,7 @@ secret/*
 notebooks
 test.py
 *.sh
+.opencode/*
 
 # archive folder
 *.zip
