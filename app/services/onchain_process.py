@@ -103,7 +103,7 @@ def get_executed_tx(
     user: str, market_order_tx: str, token_in: str, token_out: str
 ) -> str:
     """"""
-    url = "https://monorepo-mainnet-prod.minswap.org/aggregator/trading-histories"
+    url = "https://agg-api.minswap.org/aggregator/trading-histories"
     body = {"owner_address": user, "token_b": token_out, "token_a": token_in}
     response = requests.post(url, json=body)
     if response.status_code != 200:
@@ -186,7 +186,7 @@ def extract_swap_info(market_order_tx: str, user: Optional[str] = None) -> dict:
         mo_utxos = context.api.transaction_utxos(market_order_tx)
         user = mo_utxos.inputs[0].address
 
-    url = "https://monorepo-mainnet-prod.minswap.org/aggregator/orders"
+    url = "https://agg-api.minswap.org/aggregator/orders"
     body = {
         "owner_address": user,
         "limit": 1,
