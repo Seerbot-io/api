@@ -177,6 +177,7 @@ def extract_swap_info_v0(
     }
 
 
+# todo: have bug when user (not None or invalid) and tx not match
 def extract_swap_info(market_order_tx: str, user: Optional[str] = None) -> dict:
     price_res = requests.get(
         "https://agg-api.minswap.org/aggregator/ada-price?currency=usd"
