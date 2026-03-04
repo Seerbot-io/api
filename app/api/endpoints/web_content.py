@@ -56,14 +56,18 @@ def get_statistics(db: Session = Depends(get_db)) -> Statistics:
     """
     result = db.execute(text(query)).fetchone()
 
+    stat = None
     if result is None:
-        return Statistics(n_pair="0", liquidity="0", n_tx="0")
+        stat = Statistics(n_pair="0", liquidity="0", n_tx="0")
+    else:
+        stat = Statistics(
+            n_pair=represent_number(result.n_pair),
+            liquidity=represent_number(result.liquidity),
+            n_tx=represent_number(result.n_tx),
+        )
+    print("stat:", stat)
 
-    return Statistics(
-        n_pair=represent_number(result.n_pair),
-        liquidity=represent_number(result.liquidity),
-        n_tx=represent_number(result.n_tx),
-    )
+    return stat
 
 
 @router.get(
