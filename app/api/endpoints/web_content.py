@@ -65,7 +65,7 @@ def get_statistics(db: Session = Depends(get_db)) -> Statistics:
             liquidity=represent_number(result.liquidity),
             n_tx=represent_number(result.n_tx),
         )
-    print("stat:", stat)
+    print(f"stat: {stat}")
 
     return stat
 
